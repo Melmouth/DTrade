@@ -8,7 +8,9 @@ import {
   LineSeries 
 } from 'lightweight-charts';
 import { BarChart2, TrendingUp, Zap, MoreHorizontal, Ruler } from 'lucide-react'; 
-import { calculateSMA, calculateEMA, calculateEnvelope, calculateBollinger } from '../utils/math';
+
+// --- CHANGEMENT MAJEUR : ON IMPORTE LE REGISTRE AU LIEU DES FONCTIONS MATHS ---
+import { calculateIndicator } from '../indicators/registry';
 
 // --- CONFIGURATION ---
 const PERIODS = [
@@ -32,7 +34,6 @@ const TOGGLES_CONFIG = [
   { key: 'priceLines', label: 'LNS', type: 'ui', icon: MoreHorizontal, tooltip: 'Lignes de prix' },
 ];
 
-// AJOUT DE LA PROP 'livePrice'
 export default function StockChart({ data, dailyData, meta, loading, activePeriod, onPeriodChange, indicators = [], previewSeries = null, livePrice = null }) {
   const chartContainerRef = useRef();
   const chartInstance = useRef(null);
@@ -46,11 +47,10 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
   const shouldZoomRef = useRef(true); 
   const prevPeriodRef = useRef(activePeriod);
 
-  // --- NOUVEAU : REF POUR LE LIVE UPDATE ---
-  // On stocke la dernière bougie connue pour pouvoir la modifier sans re-fetch
+  // Ref pour le Live Update
   const lastCandleRef = useRef(null);
 
-  // --- REF POUR L'OUTIL DE MESURE ---
+  // Ref pour l'outil de mesure (Ruler)
   const measurementRef = useRef({
     active: false,
     startPrice: null,
@@ -144,7 +144,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
 
       // 2. GESTION OUTIL DE MESURE (RULER) - Mouse Move
       if (measurementRef.current.active && mainSeriesRef.current) {
-        // Convertir coordonnée Y en prix
         const currentPrice = mainSeriesRef.current.coordinateToPrice(param.point.y);
         if (currentPrice === null) return;
 
@@ -152,18 +151,17 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         const diff = currentPrice - startPrice;
         const pct = (diff / startPrice) * 100;
         const isUp = diff >= 0;
-        const color = isUp ? '#00ff41' : '#ff003c'; // Neon Green / Neon Red
+        const color = isUp ? '#00ff41' : '#ff003c'; 
 
         const lineOptions = {
           price: currentPrice,
           color: color,
           lineWidth: 2,
-          lineStyle: 0, // Solid
+          lineStyle: 0, 
           axisLabelVisible: true,
           title: `${isUp ? '+' : ''}${diff.toFixed(2)} (${isUp ? '+' : ''}${pct.toFixed(2)}%)`,
         };
 
-        // Création ou Mise à jour de la ligne mouvante
         if (measurementRef.current.endLine) {
            measurementRef.current.endLine.applyOptions(lineOptions);
         } else {
@@ -176,15 +174,12 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     chart.subscribeClick((param) => {
         if (!param.point || !mainSeriesRef.current) return;
 
-        // Nettoyage timer précédent si clic rapide
         if (measurementRef.current.removeTimer) {
             clearTimeout(measurementRef.current.removeTimer);
             measurementRef.current.removeTimer = null;
         }
 
-        // CAS 1 : Démarrer la mesure
         if (!measurementRef.current.active) {
-            // Nettoyage des anciennes lignes si elles existent encore
             if (measurementRef.current.startLine) {
                 try { mainSeriesRef.current.removePriceLine(measurementRef.current.startLine); } catch(e){}
                 measurementRef.current.startLine = null;
@@ -200,21 +195,16 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
             measurementRef.current.active = true;
             measurementRef.current.startPrice = price;
 
-            // Création ligne de départ (Blanche pointillée)
             measurementRef.current.startLine = mainSeriesRef.current.createPriceLine({
                 price: price,
                 color: '#ffffff',
-                lineStyle: 2, // Dotted
+                lineStyle: 2, 
                 lineWidth: 1,
                 axisLabelVisible: true,
                 title: 'MEASURE START',
             });
-        } 
-        // CAS 2 : Arrêter la mesure (Figer + Fade out)
-        else {
+        } else {
             measurementRef.current.active = false;
-            
-            // On laisse les lignes affichées 1.5s puis on supprime
             measurementRef.current.removeTimer = setTimeout(() => {
                 if (mainSeriesRef.current) {
                     if (measurementRef.current.startLine) {
@@ -230,7 +220,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         }
     });
 
-    // --- FIX CRASH: NETTOYAGE COMPLET ---
     return () => {
       resizeObserver.disconnect();
       if (chartInstance.current) {
@@ -240,7 +229,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
       indicatorSeriesRef.current.clear();
       mainSeriesRef.current = null;
       volumeSeriesRef.current = null;
-      // Cleanup mesure
       if (measurementRef.current.removeTimer) clearTimeout(measurementRef.current.removeTimer);
     };
   }, []);
@@ -266,8 +254,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     if (mainSeriesRef.current) {
       try { chart.removeSeries(mainSeriesRef.current); } catch (e) { /* ignore */ }
       mainSeriesRef.current = null;
-      
-      // Reset ref mesure car la série parente est détruite
       measurementRef.current = { active: false, startPrice: null, startLine: null, endLine: null, removeTimer: null };
     }
 
@@ -311,8 +297,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
 
     newSeries.setData(mainData);
     
-    // --- INIT LIVE UPDATE REF ---
-    // On initialise la référence avec la dernière donnée chargée pour pouvoir faire des deltas
     if (mainData.length > 0) {
         lastCandleRef.current = { ...mainData[mainData.length - 1] };
     }
@@ -320,12 +304,12 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
     mainSeriesRef.current = newSeries;
 
-    // B. INDICATEURS
+    // B. INDICATEURS (REFONTE COMPLÈTE VIA REGISTRE)
     let indicatorsToShow = indicators.filter(i => i.visible !== false);
     const activeIds = new Set(indicatorsToShow.map(i => i.id));
     if (previewSeries) activeIds.add(previewSeries.id);
 
-    // FIX SECONDAIRE: Sécurisation de la suppression des séries
+    // Cleanup Sécurisé
     indicatorSeriesRef.current.forEach((val, id) => {
       if (!activeIds.has(id)) {
         try {
@@ -338,8 +322,9 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
       }
     });
 
+    // Fonction Helper de Dessin
     const drawIndicator = (id, type, color, calculatedData) => {
-         // Cleanup si changement de type
+         // Si changement de type (Band <-> Line), on nettoie l'ancien
          if (indicatorSeriesRef.current.has(id)) {
             const old = indicatorSeriesRef.current.get(id);
             const wasBand = Array.isArray(old);
@@ -349,7 +334,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
                 try {
                     if (wasBand) old.forEach(s => chart.removeSeries(s));
                     else chart.removeSeries(old);
-                } catch(e) { console.warn(e); }
+                } catch(e) {}
                 indicatorSeriesRef.current.delete(id);
             }
          }
@@ -362,6 +347,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
          };
 
          if (type === 'BAND') {
+             // Rendu BANDES (3 lignes : Upper, Lower, Basis)
              let seriesSet = indicatorSeriesRef.current.get(id);
              
              if (!seriesSet) {
@@ -375,12 +361,14 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
                  seriesSet[2].applyOptions({ priceLineVisible: visibility.priceLines });
              }
 
-             seriesSet[0].setData(calculatedData.upper);
-             seriesSet[1].setData(calculatedData.lower);
-             seriesSet[2].setData(calculatedData.basis);
+             if (calculatedData && calculatedData.upper) {
+                seriesSet[0].setData(calculatedData.upper);
+                seriesSet[1].setData(calculatedData.lower);
+                seriesSet[2].setData(calculatedData.basis);
+             }
 
          } else {
-             // RENDU LIGNE SIMPLE
+             // Rendu LIGNE SIMPLE
              let series = indicatorSeriesRef.current.get(id);
              if (!series) {
                  series = chart.addSeries(LineSeries, { 
@@ -392,35 +380,39 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
              } else {
                  series.applyOptions({ color: color, priceLineVisible: visibility.priceLines });
              }
-             series.setData(calculatedData);
+             if (calculatedData) series.setData(calculatedData);
          }
     };
 
+    // --- LE CŒUR DU CHANGEMENT : APPEL AU REGISTRE ---
     indicatorsToShow.forEach(ind => {
       if (previewSeries && ind.id === previewSeries.id) return;
       
-      const p = ind.param || ind.period;
-      // === MODIFICATION ICI : RECUPERATION DE LA GRANULARITE ===
-      const gran = ind.granularity || 'days'; 
+      // On prépare la config standard pour le registre
+      const config = {
+          id: ind.type, // ex: 'SMA', 'BB'
+          params: ind.params || { period: ind.param || ind.period || 20 }, // Fallback compatibilité
+          granularity: ind.granularity || 'days'
+      };
 
-      let dataPoints;
-
-      // === MODIFICATION ICI : PASSAGE DE 'gran' AUX FONCTIONS ===
-      if (ind.type === 'SMA') dataPoints = calculateSMA(data, dailyData, p, gran);
-      else if (ind.type === 'EMA') dataPoints = calculateEMA(data, dailyData, p, gran);
-      else if (ind.type === 'ENV') dataPoints = calculateEnvelope(data, dailyData, p, 20, gran);
-      else if (ind.type === 'BB')  dataPoints = calculateBollinger(data, dailyData, p, 20, gran);
+      // 1. Calcul via le registre (plus de if/else géant !)
+      const dataPoints = calculateIndicator(config, data, dailyData);
       
-      const style = ind.style || (ind.type === 'ENV' || ind.type === 'BB' ? 'BAND' : 'LINE');
+      // 2. Détermination du style (Band vs Line)
+      const style = ind.style || 'LINE'; // Défini par le menu ou le registre
+
+      // 3. Dessin
       if (dataPoints) drawIndicator(ind.id, style, ind.color, dataPoints);
     });
 
+    // Gestion de la série de prévisualisation (Editor)
     if (previewSeries) {
-        const style = previewSeries.style || (previewSeries.type === 'ENV' || previewSeries.type === 'BB' ? 'BAND' : 'LINE');
+        const style = previewSeries.style || 'LINE';
+        // Note: previewSeries contient déjà .data calculé par l'éditeur
         drawIndicator(previewSeries.id, style, previewSeries.color, previewSeries.data);
     }
 
-    // Legend Update
+    // Legend Update Initiale
     if (mainData.length > 0) {
        const last = mainData[mainData.length - 1];
        const val = last.close !== undefined ? last.close : last.value;
@@ -434,37 +426,24 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
 
   }, [data, dailyData, chartType, indicators, previewSeries, visibility.priceLines]);
 
-  // -----------------------------------------------------------------------
-  // 4. LOGIC : LIVE UPDATE (WEBSOCKET INJECTION)
-  // -----------------------------------------------------------------------
+  // --- 4. LOGIC : LIVE UPDATE ---
   useEffect(() => {
-    // Si pas de prix, pas de série ou pas de données initiales, on ne fait rien
     if (!livePrice || !mainSeriesRef.current || !lastCandleRef.current) return;
 
     const current = lastCandleRef.current;
     
-    // Création de la bougie mise à jour
     const updatedCandle = {
         ...current,
-        // On update le Close
         close: livePrice,
-        // On update High/Low si nécessaire
         high: Math.max(current.high !== undefined ? current.high : current.value, livePrice),
         low: Math.min(current.low !== undefined ? current.low : current.value, livePrice),
     };
 
-    // Cas spécifique Line Chart (structure { time, value }) vs Candle Chart
-    if (chartType === 'line') {
-        updatedCandle.value = livePrice;
-    }
+    if (chartType === 'line') updatedCandle.value = livePrice;
 
-    // Mise à jour visuelle immédiate via l'API interne (très performant)
     mainSeriesRef.current.update(updatedCandle);
-    
-    // Mise à jour de la mémoire pour le prochain tick
     lastCandleRef.current = updatedCandle;
 
-    // Mise à jour de la légende en temps réel
     if (chartType === 'candle') {
         setLegend(prev => ({
             ...prev,
@@ -476,9 +455,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     } else {
         setLegend(prev => ({ ...prev, close: livePrice }));
     }
-
   }, [livePrice, chartType]);
-
 
   // --- 5. LOGIC : ZOOM STRATEGY ---
   useEffect(() => {
@@ -518,9 +495,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     } else {
         chart.timeScale().fitContent();
     }
-
     shouldZoomRef.current = false;
-
   }, [data, meta]);
   
   useEffect(() => {
@@ -547,8 +522,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     <div className="bg-[#050505] w-full h-[600px] flex flex-col relative group/chart select-none">
        {/* TOOLBAR */}
       <div className="flex flex-wrap justify-between items-center px-2 py-2 border-b border-slate-800 bg-black z-20">
-        
-        {/* Périodes */}
         <div className="flex items-center">
           {PERIODS.map((p) => (
             <button
@@ -569,14 +542,11 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         </div>
 
         <div className="flex items-center gap-4">
-          
-          {/* Toggles */}
           <div className="flex items-center gap-1">
              {TOGGLES_CONFIG.map((toggle) => {
                if (chartType === 'line' && ['open', 'high', 'low'].includes(toggle.key)) return null;
                const isActive = visibility[toggle.key];
                const Icon = toggle.icon; 
-
                return (
                  <button
                    key={toggle.key}
@@ -596,7 +566,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
              })}
           </div>
 
-          {/* Type Graphique */}
           <div className="flex border border-slate-800">
             <button 
               onClick={() => setChartType('candle')}
@@ -617,7 +586,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
 
       {/* CHART AREA */}
       <div className="flex-1 relative w-full h-full">
-        
         {/* LÉGENDE FLOTTANTE */}
         <div className="absolute top-2 left-2 z-10 pointer-events-none font-mono text-xs hidden md:block">
            <div className="flex items-center bg-black/90 backdrop-blur-md px-3 py-1.5 border border-slate-800 shadow-xl">
@@ -651,7 +619,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
           </div>
         )}
 
-        {/* FEEDBACK VISUEL MESURE (Optionnel) */}
         {measurementRef.current?.active && (
            <div className="absolute top-4 right-4 z-40 bg-black/80 border border-slate-700 text-white px-2 py-1 text-[10px] font-mono animate-pulse flex items-center gap-2">
                <Ruler size={12} />

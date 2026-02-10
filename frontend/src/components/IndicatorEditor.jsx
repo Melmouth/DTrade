@@ -1,94 +1,85 @@
-import { useState, useEffect } from 'react';
-import { X, Save, Activity, Cpu, RotateCw, Palette, Layers, BarChart3 } from 'lucide-react';
-import { calculateSMA, calculateEMA, calculateEnvelope, calculateBollinger } from '../utils/math';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Save, Activity, RotateCw, Palette, Layers, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { calculateIndicator, default as INDICATORS } from '../indicators/registry';
 
 const COLORS = [
   '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', 
   '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e', '#ffffff'
 ];
 
-// Configuration dynamique selon le type d'indicateur
-const CONFIGS = {
-    'SMA': { min: 5, max: 300, step: 1, label: 'Période (N)', fast: 'FAST (5)', slow: 'SLOW (300)' },
-    'EMA': { min: 5, max: 200, step: 1, label: 'Période (N)', fast: 'REACTIVE (5)', slow: 'SMOOTH (200)' },
-    'ENV': { min: 0.5, max: 15, step: 0.1, label: 'Écart (%)', fast: 'TIGHT (0.5%)', slow: 'WIDE (15%)' },
-    'BB':  { min: 0.5, max: 5, step: 0.1, label: 'Multiplicateur (σ)', fast: '0.5 σ', slow: '5.0 σ' },
-};
-
 export default function IndicatorEditor({ indicator, chartData, dailyData, onClose, onSave, onPreview }) {
-  const [loading, setLoading] = useState(true);
-  const [cache, setCache] = useState({}); // Stocke toutes les versions pré-calculées
+  const [isVisualLoading, setIsVisualLoading] = useState(false);
   
-  // Paramètre principal générique (Période N ou Facteur K/%)
-  // On supporte 'param' (nouveau standard) ou 'period' (legacy SMA)
-  const [param, setParam] = useState(indicator.param !== undefined ? indicator.param : indicator.period);
+  // On récupère la définition complète depuis le registre
+  const definition = INDICATORS[indicator.type];
+
+  // Identification du paramètre principal pour le "Gros Slider" (le premier paramètre numérique)
+  const mainParamKey = useMemo(() => {
+    if (!definition) return null;
+    return Object.keys(definition.params).find(k => definition.params[k].type === 'number');
+  }, [definition]);
+
+  const mainParamConfig = definition ? definition.params[mainParamKey] : {};
+
+  // État local des paramètres (tous les params : period, stdDev, source, etc.)
+  const [localParams, setLocalParams] = useState(indicator.params || {});
   const [color, setColor] = useState(indicator.color);
   const [name, setName] = useState(indicator.name);
-
-  // Nouvelle option Granularité
   const [granularity, setGranularity] = useState(indicator.granularity || 'days');
 
-  // Sélection de la config
-  const config = CONFIGS[indicator.type] || CONFIGS['SMA'];
+  // Valeur actuelle pour le slider principal
+  const sliderValue = localParams[mainParamKey] || mainParamConfig.default || 20;
 
-  // 1. SEQUENCE D'INITIALISATION & PRE-CALCUL INTELLIGENTE
+  // 1. LIVE PREVIEW (Calcul à la volée pour réactivité totale)
   useEffect(() => {
-    setLoading(true);
-    
-    // Timer pour effet visuel et non-blocage du thread UI
+    if (!definition) return;
+
+    // Petit délai pour éviter de spammer le calcul si on tape vite
     const timer = setTimeout(() => {
-      const newCache = {};
-      const { min, max, step } = config;
-      
-      try {
-        // Boucle adaptative : calcul massif de toutes les possibilités du slider
-        for (let i = min; i <= max; i += step) {
-           // Correction précision flottante pour clés (ex: 2.10000004 -> 2.1)
-           const val = parseFloat(i.toFixed(2)); 
-           
-           // ON PASSE MAINTENANT LA GRANULARITÉ AUX FONCTIONS DE CALCUL
-           if (indicator.type === 'SMA') newCache[val] = calculateSMA(chartData, dailyData, val, granularity);
-           else if (indicator.type === 'EMA') newCache[val] = calculateEMA(chartData, dailyData, val, granularity);
-           else if (indicator.type === 'ENV') newCache[val] = calculateEnvelope(chartData, dailyData, val, 20, granularity); // Base 20
-           else if (indicator.type === 'BB')  newCache[val] = calculateBollinger(chartData, dailyData, val, 20, granularity); // Base 20
-        }
-        setCache(newCache);
-        setLoading(false);
-      } catch (e) {
-        console.error("Calculation error", e);
-        setLoading(false);
-      }
-    }, 800); // Délai pour l'effet "Decrypting"
+        setIsVisualLoading(true);
+        requestAnimationFrame(() => {
+            try {
+                // On recalcule avec l'ensemble des paramètres actuels (localParams)
+                const dataToPreview = calculateIndicator(
+                    { id: indicator.type, params: localParams, granularity },
+                    chartData,
+                    dailyData
+                );
+
+                if (dataToPreview) {
+                    onPreview({
+                        ...indicator,
+                        name: name,
+                        color: color,
+                        granularity: granularity,
+                        params: localParams, // On renvoie tout l'objet params
+                        data: dataToPreview 
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsVisualLoading(false);
+            }
+        });
+    }, 50); // Debounce très court (50ms)
 
     return () => clearTimeout(timer);
-  }, [indicator.type, chartData, dailyData, granularity]); // Recalcul si la granularité change
+  }, [localParams, color, name, granularity, indicator, chartData, dailyData, definition]);
 
-  // 2. EFFET TEMPS RÉEL (SLIDER)
-  useEffect(() => {
-    // On vérifie que le cache contient bien la valeur (float precision safe)
-    const safeParam = parseFloat(param.toFixed(2));
 
-    if (!loading && cache[safeParam]) {
-      onPreview({
-        id: indicator.id,
-        type: indicator.type,
-        style: indicator.style,
-        name: name,
-        color: color,
-        granularity: granularity, // On renvoie la granularité actuelle
-        param: safeParam, // On renvoie la valeur unifiée
-        period: (indicator.type === 'ENV' || indicator.type === 'BB') ? 20 : safeParam, // Compatibilité
-        data: cache[safeParam] // Payload (Array ou {upper, lower...})
-      });
-    }
-  }, [param, color, name, granularity, loading, cache, indicator.type, indicator.style, indicator.id]);
+  // Handler générique pour tous les inputs
+  const handleParamChange = (key, value) => {
+      setLocalParams(prev => ({
+          ...prev,
+          [key]: value
+      }));
+  };
 
-  // Handler Sauvegarde
   const handleSave = () => {
     onSave({
       ...indicator,
-      param: param,
-      period: (indicator.type === 'ENV' || indicator.type === 'BB') ? 20 : param,
+      params: localParams,
       granularity,
       color,
       name
@@ -96,128 +87,155 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
     onClose();
   };
 
+  if (!definition) return null;
+
   return (
     <div className="absolute top-4 right-4 z-50 w-80 animate-in fade-in zoom-in duration-300">
-      {/* Container Glassmorphism Neon */}
-      <div className="bg-slate-900/80 backdrop-blur-md border border-neon-blue/50 shadow-[0_0_30px_rgba(0,243,255,0.15)] overflow-hidden relative">
+      <div className="bg-slate-900/90 backdrop-blur-xl border border-neon-blue/50 shadow-[0_0_40px_rgba(0,243,255,0.1)] overflow-hidden relative rounded-sm">
         
-        {/* Header Decoration */}
-        <div className="h-1 w-full bg-gradient-to-r from-neon-blue via-neon-purple to-neon-blue"></div>
+        {/* Header Line */}
+        <div className="h-0.5 w-full bg-gradient-to-r from-neon-blue via-neon-purple to-neon-blue"></div>
         
         {/* Title Bar */}
-        <div className="flex items-center justify-between p-3 border-b border-white/10">
+        <div className="flex items-center justify-between p-3 border-b border-white/10 bg-black/40">
            <div className="flex items-center gap-2 text-neon-blue">
               <Activity size={16} />
-              <span className="text-xs font-bold uppercase tracking-widest">Config_{indicator.type}</span>
+              <span className="text-xs font-bold uppercase tracking-widest">EDIT_{definition.id}</span>
            </div>
-           <button onClick={onClose} className="text-slate-500 hover:text-white transition">
-              <X size={16} />
-           </button>
+           <div className="flex items-center gap-2">
+             {isVisualLoading && <RotateCw size={12} className="text-neon-blue animate-spin" />}
+             <button onClick={onClose} className="text-slate-500 hover:text-white transition">
+                <X size={16} />
+             </button>
+           </div>
         </div>
 
-        {/* LOADING STATE */}
-        {loading && (
-           <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-[2px] flex flex-col items-center justify-center gap-3">
-              <RotateCw size={32} className="text-neon-blue animate-spin duration-[2s]" />
-              <div className="flex items-center gap-2 text-xs font-mono text-neon-blue animate-pulse">
-                <Cpu size={12} />
-                <span>RECALCULATING_VECTORS...</span>
-              </div>
-           </div>
-        )}
-
-        {/* CONTENT (Flouté si loading) */}
-        <div className={`p-5 space-y-5 transition-all duration-500 ${loading ? 'blur-sm opacity-50' : 'blur-0 opacity-100'}`}>
+        <div className="p-4 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
             
-            {/* 1. SLIDER DYNAMIQUE */}
-            <div className="space-y-2">
-                <div className="flex justify-between items-end">
-                    <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">{config.label}</label>
-                    <span className="text-xl font-mono text-neon-blue font-bold">
-                        {param}
-                        <span className="text-xs text-slate-600 ml-1">{indicator.type === 'ENV' ? '%' : indicator.type === 'BB' ? 'σ' : ''}</span>
-                    </span>
+            {/* 1. ZONE QUICK TUNE (Slider Principal) */}
+            {mainParamKey && (
+                <div className="space-y-2 bg-slate-800/50 p-3 rounded border border-slate-700/50">
+                    <div className="flex justify-between items-end mb-1">
+                        <label className="text-[10px] uppercase text-neon-blue font-bold tracking-wider flex items-center gap-1">
+                            <SlidersHorizontal size={10} /> {mainParamConfig.label} (Quick)
+                        </label>
+                        <span className="text-lg font-mono text-white font-bold">
+                            {sliderValue}
+                        </span>
+                    </div>
+                    <input 
+                        type="range" 
+                        min={mainParamConfig.min} 
+                        max={mainParamConfig.max} 
+                        step={mainParamConfig.step || 1}
+                        value={sliderValue}
+                        onChange={(e) => handleParamChange(mainParamKey, parseFloat(e.target.value))}
+                        className="w-full h-1 bg-slate-700 appearance-none cursor-pointer accent-neon-blue hover:accent-white transition-all rounded-full"
+                    />
                 </div>
-                <input 
-                    type="range" 
-                    min={config.min} 
-                    max={config.max} 
-                    step={config.step}
-                    value={param}
-                    onChange={(e) => setParam(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-slate-700 appearance-none cursor-pointer accent-neon-blue hover:accent-white transition-all"
-                />
-                <div className="flex justify-between text-[9px] text-slate-600 font-mono">
-                    <span>{config.fast}</span>
-                    <span>{config.slow}</span>
-                </div>
+            )}
+
+            {/* 2. ZONE FINE TUNING (Tous les paramètres) */}
+            <div className="space-y-3">
+                <div className="text-[10px] uppercase text-slate-500 font-bold border-b border-white/5 pb-1">Paramètres Détaillés</div>
+                
+                {Object.entries(definition.params).map(([key, config]) => (
+                    <div key={key} className="space-y-1">
+                        <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wide">{config.label}</label>
+                        
+                        {config.type === 'select' ? (
+                            <select
+                                value={localParams[key]}
+                                onChange={(e) => handleParamChange(key, e.target.value)}
+                                className="w-full bg-black/50 border border-slate-700 p-2 text-xs text-white focus:border-neon-blue outline-none rounded-sm"
+                            >
+                                {config.options.map(opt => (
+                                    <option key={opt} value={opt}>{opt.toUpperCase()}</option>
+                                ))}
+                            </select>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <input 
+                                    type="number"
+                                    min={config.min}
+                                    max={config.max}
+                                    step={config.step || 1}
+                                    value={localParams[key]}
+                                    onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
+                                    className="flex-1 bg-black/50 border border-slate-700 p-1.5 text-xs text-white focus:border-neon-blue outline-none font-mono rounded-sm"
+                                />
+                                {/* Petit texte d'aide pour les bornes */}
+                                <span className="text-[9px] text-slate-600 font-mono">
+                                    [{config.min}-{config.max}]
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                ))}
             </div>
 
             <hr className="border-white/10" />
 
-            {/* 2. GRANULARITÉ (NOUVEAU) */}
-            <div className="space-y-2">
-                <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider flex items-center gap-2">
-                    <Layers size={10} /> Mode de calcul
-                </label>
-                <div className="flex bg-black/40 p-1 rounded border border-slate-700">
-                    <button
-                        onClick={() => setGranularity('days')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-[10px] font-bold uppercase transition-all rounded ${granularity === 'days' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-                    >
-                        <Layers size={12} /> Daily (J)
-                    </button>
-                    <button
-                        onClick={() => setGranularity('data')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-[10px] font-bold uppercase transition-all rounded ${granularity === 'data' ? 'bg-neon-blue text-black shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-                    >
-                        <BarChart3 size={12} /> Chart (D)
-                    </button>
+            {/* 3. GRANULARITÉ & APPARENCE */}
+            <div className="grid grid-cols-2 gap-4">
+                {/* Granularité */}
+                <div className="space-y-2">
+                    <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+                        <Layers size={10} /> Mode
+                    </label>
+                    <div className="flex flex-col gap-1">
+                        <button
+                            onClick={() => setGranularity('days')}
+                            className={`px-2 py-1 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'days' ? 'bg-slate-700 border-slate-500 text-white' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
+                        >
+                            Daily (J)
+                        </button>
+                        <button
+                            onClick={() => setGranularity('data')}
+                            className={`px-2 py-1 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'data' ? 'bg-neon-blue/20 border-neon-blue text-neon-blue' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
+                        >
+                            Chart (D)
+                        </button>
+                    </div>
                 </div>
-                <div className="text-[9px] text-slate-500 font-mono text-center">
-                    {granularity === 'days' ? "Basé sur les clôtures journalières (Stable)" : "Basé sur les bougies affichées (Intraday)"}
+
+                {/* Couleur */}
+                <div className="space-y-2">
+                    <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+                        <Palette size={10} /> Couleur
+                    </label>
+                    <div className="grid grid-cols-5 gap-1">
+                        {COLORS.slice(0, 10).map(c => (
+                            <button
+                                key={c}
+                                onClick={() => setColor(c)}
+                                className={`w-4 h-4 rounded-sm border transition-all ${color === c ? 'border-white scale-110 shadow-sm' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                style={{ backgroundColor: c }}
+                            />
+                        ))}
+                    </div>
                 </div>
             </div>
 
-            <hr className="border-white/10" />
-
-            {/* 3. NAME */}
-            <div className="space-y-1">
-                <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Label Identifiant</label>
+            {/* Nom Custom */}
+             <div className="space-y-1 pt-2">
                 <input 
                     type="text" 
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-black/50 border border-slate-700 focus:border-neon-blue p-2 text-xs text-white outline-none transition-colors"
+                    placeholder="Nom personnalisé..."
+                    className="w-full bg-transparent border-b border-slate-700 py-1 text-xs text-slate-300 focus:border-neon-blue outline-none transition-colors placeholder:text-slate-700"
                 />
             </div>
 
-            {/* 4. COLORS */}
-            <div className="space-y-2">
-                <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider flex items-center gap-2">
-                    <Palette size={32} /> Signature Chromatique
-                </label>
-                <div className="grid grid-cols-10 gap-1.5">
-                    {COLORS.map(c => (
-                        <button
-                            key={c}
-                            onClick={() => setColor(c)}
-                            className={`w-5 h-5 rounded-sm border transition-all hover:scale-110 ${color === c ? 'border-white scale-110 shadow-[0_0_10px_currentColor]' : 'border-transparent opacity-50 hover:opacity-100'}`}
-                            style={{ backgroundColor: c, color: c }}
-                        />
-                    ))}
-                </div>
-            </div>
-
-            {/* FOOTER ACTIONS */}
+            {/* FOOTER */}
             <div className="pt-2">
                 <button 
                     onClick={handleSave}
-                    disabled={loading}
-                    className="w-full bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/50 text-neon-blue py-2 flex items-center justify-center gap-2 transition-all group"
+                    className="w-full bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/50 text-neon-blue py-2 flex items-center justify-center gap-2 transition-all group rounded-sm"
                 >
                     <Save size={16} className="group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-bold tracking-widest">ENREGISTRER</span>
+                    <span className="text-xs font-bold tracking-widest">APPLIQUER</span>
                 </button>
             </div>
 

@@ -1,6 +1,9 @@
-import { useState } from 'react';
-import { Settings2, Wand2, Palette, Activity, ChevronRight, ChevronLeft, LineChart, Layers, Percent } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Settings2, Wand2, Palette, Activity, ChevronRight, ChevronLeft, LineChart, Layers, BarChart3 } from 'lucide-react';
 import { marketApi } from '../api/client';
+
+// Import du Registre et des Définitions
+import { getAvailableIndicators, getIndicatorConfig, default as INDICATORS } from '../indicators/registry';
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
@@ -9,54 +12,62 @@ const PRESET_COLORS = [
   '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
 ];
 
-const AVAILABLE_INDICATORS = [
-  { id: 'SMA', name: 'Moyenne Mobile (SMA)', icon: LineChart, desc: 'Tendance lissée simple', type: 'LINE' },
-  { id: 'EMA', name: 'Exponentielle (EMA)', icon: Activity, desc: 'Réactive aux prix récents', type: 'LINE' },
-  { id: 'ENV', name: 'Enveloppe', icon: Layers, desc: 'Canal de volatilité (%)', type: 'BAND' },
-  { id: 'BB',  name: 'Bollinger Bands', icon: Activity, desc: 'StdDev Volatility', type: 'BAND' },
-];
-
 export default function IndicatorMenu({ ticker, onAddIndicator }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedInd, setSelectedInd] = useState(null); // Stocke l'objet indicateur complet
+  const [selectedId, setSelectedId] = useState(null); // Juste l'ID
   const [mode, setMode] = useState('manual');
   const [loading, setLoading] = useState(false);
 
-  // Form States
+  // Form States Dynamiques
   const [color, setColor] = useState('#3b82f6');
   const [customName, setCustomName] = useState('');
   
-  // Paramètre générique (Période N ou Facteur K/%)
-  const [param, setParam] = useState(20); 
+  // NOUVEAU : On stocke tous les paramètres dans un objet (ex: { period: 20, stdDev: 2 })
+  const [formParams, setFormParams] = useState({}); 
   
-  // Nouveau state pour la granularité
-  const [granularity, setGranularity] = useState('days'); // 'days' ou 'data'
+  // Granularité
+  const [granularity, setGranularity] = useState('days');
   
   // Smart Params
   const [smartTarget, setSmartTarget] = useState(50);
   const [smartLookback, setSmartLookback] = useState(365);
 
+  // Récupération de la liste depuis le registre
+  const availableIndicators = useMemo(() => getAvailableIndicators(), []);
+
+  // Récupération de la définition complète de l'indicateur sélectionné (pour construire le UI)
+  const currentDef = selectedId ? INDICATORS[selectedId] : null;
+
   const resetMenu = () => {
     setIsOpen(false);
     setTimeout(() => {
-        setSelectedInd(null);
-        setParam(20);
+        setSelectedId(null);
+        setFormParams({});
         setMode('manual');
-        setGranularity('days'); // Reset granularité
+        setGranularity('days');
+        setCustomName('');
     }, 200);
   };
 
   const handleSelect = (ind) => {
-    setSelectedInd(ind);
+    setSelectedId(ind.id);
     
-    // Initialisation des valeurs par défaut selon le type
-    if (ind.id === 'ENV') setParam(5); // 5% par défaut
-    else if (ind.id === 'BB') setParam(2.0); // 2.0 StdDev par défaut
-    else setParam(20); // 20 jours par défaut pour SMA/EMA
+    // 1. Charger la config par défaut depuis le registre
+    const config = getIndicatorConfig(ind.id);
+    setFormParams(config.params);
+    setColor(config.color || '#3b82f6');
+    setGranularity(config.granularity || 'days');
 
-    // Initialisation Smart Target (50% pour Trend, 80% pour Bandes)
+    // 2. Initialisation Smart Target par défaut selon le type
     if (ind.type === 'BAND') setSmartTarget(80);
     else setSmartTarget(50);
+  };
+
+  const handleParamChange = (key, value) => {
+    setFormParams(prev => ({
+        ...prev,
+        [key]: value
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -64,59 +75,59 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
     setLoading(true);
 
     try {
-      let finalParam = param;
+      let finalParams = { ...formParams };
       let displayName = customName;
 
-      // --- LOGIQUE SMART ---
+      // --- LOGIQUE SMART (Adaptée au registre) ---
+      // On garde les appels API existants, mais on mappe le résultat vers le bon paramètre
       if (mode === 'smart') {
         const decimalTarget = smartTarget / 100;
         let res;
 
-        // Appel API selon le type
-        if (selectedInd.id === 'SMA') {
+        // Note: L'API attend toujours des endpoints spécifiques pour le moment
+        if (selectedId === 'SMA') {
             res = await marketApi.calculateSmartSMA(ticker, decimalTarget, smartLookback);
-            finalParam = res.data.optimal_n;
+            finalParams.period = res.data.optimal_n;
         } 
-        else if (selectedInd.id === 'EMA') {
+        else if (selectedId === 'EMA') {
             res = await marketApi.calculateSmartEMA(ticker, decimalTarget, smartLookback);
-            finalParam = res.data.optimal_n;
+            finalParams.period = res.data.optimal_n;
         } 
-        else if (selectedInd.id === 'ENV') {
+        else if (selectedId === 'ENV') {
             res = await marketApi.calculateSmartEnvelope(ticker, decimalTarget, smartLookback);
-            finalParam = res.data.optimal_k; // Retourne le % optimal
+            finalParams.deviation = res.data.optimal_k; // Mappé vers 'deviation' (défini dans volatility.js)
         } 
-        else if (selectedInd.id === 'BB') {
+        else if (selectedId === 'BB') {
             res = await marketApi.calculateSmartBollinger(ticker, decimalTarget, smartLookback);
-            finalParam = res.data.optimal_k; // Retourne le multiplicateur optimal
+            finalParams.stdDev = res.data.optimal_k; // Mappé vers 'stdDev' (défini dans volatility.js)
         }
       }
 
-      // --- NOMMAGE AUTOMATIQUE ---
+      // --- NOMMAGE AUTOMATIQUE GÉNÉRIQUE ---
       if (!displayName) {
         const smartTag = mode === 'smart' ? ` [Smart ${smartTarget}%]` : '';
-        const granTag = granularity === 'data' ? ' (Intraday)' : ''; // Petit tag si mode Data
-
-        if (selectedInd.id === 'SMA') displayName = `SMA ${finalParam}${smartTag}${granTag}`;
-        if (selectedInd.id === 'EMA') displayName = `EMA ${finalParam}${smartTag}${granTag}`;
-        if (selectedInd.id === 'ENV') displayName = `Env ${finalParam}%${smartTag}${granTag}`;
-        if (selectedInd.id === 'BB')  displayName = `BB (${finalParam}σ)${smartTag}${granTag}`;
+        const granTag = granularity === 'data' ? ' (Intraday)' : '';
+        
+        // On construit le nom basé sur les params principaux (le premier paramètre défini)
+        const mainParamKey = Object.keys(finalParams)[0]; 
+        const mainParamVal = finalParams[mainParamKey];
+        
+        displayName = `${currentDef.name} (${mainParamVal})${smartTag}${granTag}`;
       }
 
-      // --- CREATION DE L'OBJET ---
+      // --- CREATION DE L'OBJET FINAL ---
       onAddIndicator({
         id: Date.now(),
-        type: selectedInd.id, // SMA, EMA, ENV, BB
-        style: selectedInd.type, // LINE ou BAND
+        type: selectedId, // Clé du registre (SMA, BB...)
+        style: currentDef.type, // LINE ou BAND (info venant de la définition)
         
-        // Pour les bandes, la période de base est souvent fixe (20) et on joue sur l'écart (param)
-        // Pour les lignes, la période EST le paramètre.
-        period: (selectedInd.id === 'ENV' || selectedInd.id === 'BB') ? 20 : Math.floor(finalParam),
-        param: finalParam, // C'est la valeur qui sera éditable dans le slider (N, %, ou K)
-        
-        granularity: granularity, // Ajout de la granularité
-
+        // Payload principal
+        params: finalParams,
+        granularity: granularity,
         color: color,
         name: displayName,
+
+        // Meta-data pour l'UI
         isSmart: mode === 'smart',
         smartParams: mode === 'smart' ? { target: smartTarget, lookback: smartLookback } : null
       });
@@ -130,31 +141,13 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
     }
   };
 
-  // Helper pour le label du champ principal
-  const getParamLabel = () => {
-      if (!selectedInd) return '';
-      if (selectedInd.id === 'ENV') return 'Écart (%)';
-      if (selectedInd.id === 'BB') return 'Multiplicateur (StdDev)';
-      return 'Période (N)';
-  };
-
-  // Helper pour le step de l'input
-  const getStep = () => {
-      if (!selectedInd) return 1;
-      return (selectedInd.id === 'ENV' || selectedInd.id === 'BB') ? 0.1 : 1;
-  };
-
-  // --- CORRECTION : Helper pour le min de l'input ---
-  const getMin = () => {
-      if (!selectedInd) return 1;
-      // Pour les bandes (décimales), on commence à 0.1
-      if (selectedInd.id === 'ENV' || selectedInd.id === 'BB') return 0.1;
-      // Pour les SMA/EMA (entiers), on commence à 1
-      return 1;
+  // Helper pour choisir l'icône dynamiquement
+  const getIcon = (type) => {
+      if (type === 'BAND') return Layers;
+      return LineChart;
   };
 
   return (
-    // Z-INDEX BOOSTED (z-50) et relative pour servir de référent
     <div className="relative z-50">
       <button 
         onClick={() => setIsOpen(!isOpen)}
@@ -173,40 +166,47 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
           
           <div className="absolute top-full left-0 mt-2 w-80 bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col z-50">
             
-            {!selectedInd ? (
-              <div className="p-2 space-y-1">
+            {!selectedId ? (
+              /* --- LISTE DES INDICATEURS (GÉNÉRÉE DEPUIS LE REGISTRE) --- */
+              <div className="p-2 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                 <div className="px-2 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-800 mb-1">
-                  Choisir un indicateur
+                  Bibliothèque
                 </div>
-                {AVAILABLE_INDICATORS.map((ind) => (
-                  <button
-                    key={ind.id}
-                    onClick={() => handleSelect(ind)}
-                    className="w-full flex items-center justify-between p-3 hover:bg-slate-800 group transition text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-slate-800 group-hover:bg-slate-700 text-emerald-400 transition">
-                        <ind.icon size={18} />
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-slate-200">{ind.name}</div>
-                        <div className="text-[10px] text-slate-500">{ind.desc}</div>
-                      </div>
-                    </div>
-                    <ChevronRight size={14} className="text-slate-600 group-hover:text-white" />
-                  </button>
-                ))}
+                {availableIndicators.map((ind) => {
+                  const Icon = getIcon(ind.type);
+                  return (
+                    <button
+                        key={ind.id}
+                        onClick={() => handleSelect(ind)}
+                        className="w-full flex items-center justify-between p-3 hover:bg-slate-800 group transition text-left"
+                    >
+                        <div className="flex items-center gap-3">
+                        <div className="p-2 bg-slate-800 group-hover:bg-slate-700 text-emerald-400 transition">
+                            <Icon size={18} />
+                        </div>
+                        <div>
+                            <div className="text-sm font-bold text-slate-200">{ind.name}</div>
+                            <div className="text-[10px] text-slate-500 flex gap-2">
+                                {ind.tags?.map(t => <span key={t} className="bg-slate-800 px-1 rounded">{t}</span>)}
+                            </div>
+                        </div>
+                        </div>
+                        <ChevronRight size={14} className="text-slate-600 group-hover:text-white" />
+                    </button>
+                  );
+                })}
               </div>
             ) : (
+              /* --- FORMULAIRE DE CONFIGURATION --- */
               <div className="animate-in slide-in-from-right-10 duration-200">
                 <div className="flex items-center gap-2 p-2 border-b border-slate-800 bg-slate-800/30">
                   <button 
-                    onClick={() => setSelectedInd(null)}
+                    onClick={() => setSelectedId(null)}
                     className="p-1 hover:bg-slate-700 text-slate-400 hover:text-white transition"
                   >
                     <ChevronLeft size={16} />
                   </button>
-                  <span className="text-xs font-bold text-white uppercase tracking-wider">{selectedInd.name}</span>
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">{currentDef?.name}</span>
                 </div>
 
                 <div className="flex border-b border-slate-800">
@@ -227,20 +227,35 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                 <form onSubmit={handleSubmit} className="p-4 space-y-4">
                   {mode === 'manual' ? (
                     <>
-                        <div className="space-y-2">
-                            <label className="text-xs text-slate-400 font-bold uppercase">{getParamLabel()}</label>
-                            <input 
-                                type="number" 
-                                min={getMin()} /* Utilisation du helper dynamique */
-                                max="500" 
-                                step={getStep()}
-                                value={param}
-                                onChange={(e) => setParam(parseFloat(e.target.value))}
-                                className="w-full bg-slate-950 border border-slate-700 p-2 text-sm text-white focus:border-emerald-500 outline-none"
-                            />
-                        </div>
+                        {/* --- GÉNÉRATION DYNAMIQUE DES INPUTS --- */}
+                        {currentDef && Object.entries(currentDef.params).map(([key, field]) => (
+                             <div key={key} className="space-y-2">
+                                <label className="text-xs text-slate-400 font-bold uppercase">{field.label}</label>
+                                {field.type === 'select' ? (
+                                    <select
+                                        value={formParams[key]}
+                                        onChange={(e) => handleParamChange(key, e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-700 p-2 text-sm text-white focus:border-emerald-500 outline-none"
+                                    >
+                                        {field.options.map(opt => (
+                                            <option key={opt} value={opt}>{opt.toUpperCase()}</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input 
+                                        type="number"
+                                        min={field.min}
+                                        max={field.max}
+                                        step={field.step || 1}
+                                        value={formParams[key]}
+                                        onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
+                                        className="w-full bg-slate-950 border border-slate-700 p-2 text-sm text-white focus:border-emerald-500 outline-none"
+                                    />
+                                )}
+                             </div>
+                        ))}
 
-                        {/* --- AJOUT DU SÉLECTEUR DE GRANULARITÉ --- */}
+                        {/* --- SÉLECTEUR DE GRANULARITÉ --- */}
                         <div className="space-y-2">
                             <label className="text-xs text-slate-400 font-bold uppercase">Granularité</label>
                             <div className="flex bg-slate-950 border border-slate-700 rounded p-1">
@@ -254,25 +269,26 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                                 <button
                                     type="button"
                                     onClick={() => setGranularity('data')}
-                                    className={`flex-1 text-[10px] font-bold py-1 uppercase transition ${granularity === 'data' ? 'bg-neon-blue text-black shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                                    className={`flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1 uppercase transition ${granularity === 'data' ? 'bg-neon-blue text-black shadow' : 'text-slate-500 hover:text-slate-300'}`}
                                 >
-                                    Chart (Data)
+                                    <BarChart3 size={10} /> Chart (Data)
                                 </button>
                             </div>
                         </div>
                     </>
                   ) : (
+                    /* --- MODE SMART (UNCHANGED) --- */
                     <div className="space-y-4">
                       <div className="p-3 bg-indigo-900/20 border border-indigo-900/50 text-xs text-indigo-200 leading-relaxed">
-                        {selectedInd.type === 'BAND' 
+                        {currentDef.type === 'BAND' 
                              ? `L'IA optimise la largeur pour contenir ${smartTarget}% des bougies.` 
-                             : `L'IA optimise N pour que ${smartTarget}% des prix soient sup. à l'indicateur.`
+                             : `L'IA optimise la période pour que ${smartTarget}% des prix soient au-dessus.`
                         }
                       </div>
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <label className="text-xs text-slate-400 font-bold uppercase">
-                              Cible % {selectedInd.type === 'BAND' ? 'Inside' : 'Up'}
+                              Cible % {currentDef.type === 'BAND' ? 'Inside' : 'Up'}
                           </label>
                           <span className="text-xs font-mono text-indigo-400">{smartTarget}%</span>
                         </div>
@@ -301,12 +317,13 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
 
                   <hr className="border-slate-800" />
 
+                  {/* --- GLOBAL SETTINGS (NOM & COULEUR) --- */}
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <label className="text-xs text-slate-400 font-bold uppercase">Nom (Optionnel)</label>
                       <input 
                         type="text" 
-                        placeholder={mode === 'manual' ? `ex: ${selectedInd.id} ${param}` : "ex: Support Dynamique"}
+                        placeholder={mode === 'manual' ? `ex: ${currentDef.name}` : "ex: Support Dynamique"}
                         value={customName}
                         onChange={(e) => setCustomName(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700 p-2 text-xs text-white focus:border-slate-500 outline-none"
