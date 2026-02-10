@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #000000;
+  color: #e2e8f0;
+  overflow: hidden; /* App like feel */
+}
+
+/* Scrollbar Cyberpunk minimaliste */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: #00f3ff;
+  border-radius: 0;
+}
+
+/* Effet Scanline Global (optionnel mais stylé) */
+.scanlines::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background: linear-gradient(
+      to bottom,
+      rgba(18, 16, 16, 0) 50%,
+      rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/* Utilitaires custom */
+.border-cyber {
+  @apply border border-slate-800/60;
+}
+.text-shadow-neon {
+  text-shadow: 0 0 5px rgba(0, 243, 255, 0.5);
+}
