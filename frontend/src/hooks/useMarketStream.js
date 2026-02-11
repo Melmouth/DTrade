@@ -4,6 +4,10 @@ import { marketApi } from '../api/client';
 const VIEW_KEY = 'trading_view_pref';
 const WS_BASE_URL = 'ws://localhost:8000/ws';
 
+// Intervalle de synchronisation HTTP de secours (Background Sync)
+// Sert à corriger les éventuelles dérives du WebSocket sur le long terme (ex: volumes)
+const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 Minutes
+
 // Helper pour convertir l'intervalle texte (backend) en secondes
 // Permet de savoir quand clore une bougie (ex: '1m' = toutes les 60s)
 const getIntervalSeconds = (intervalStr) => {
@@ -14,7 +18,7 @@ const getIntervalSeconds = (intervalStr) => {
   return map[intervalStr] || 86400; // Par défaut 1 jour si inconnu
 };
 
-export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo') {
+export function useMarketStream(ticker, defaultPeriod = '1mo') {
   // Initialisation state
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -78,11 +82,9 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
       fetchInitialSnapshot(ticker, period, false);
 
       // B. Background Re-validation (Toutes les 5 minutes)
-      // Permet de "nettoyer" l'historique (volumes exacts, corrections boursières)
-      // et d'éviter que le graphique ne diverge trop de la réalité sur le long terme.
       const syncInterval = setInterval(() => {
           fetchInitialSnapshot(ticker, period, true); // true = mode silencieux
-      }, 5 * 60 * 1000);
+      }, SYNC_INTERVAL_MS);
 
       return () => clearInterval(syncInterval);
   }, [ticker, period, fetchInitialSnapshot]);
