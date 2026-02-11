@@ -4,6 +4,16 @@ import { marketApi } from '../api/client';
 const VIEW_KEY = 'trading_view_pref';
 const WS_BASE_URL = 'ws://localhost:8000/ws';
 
+// Helper pour convertir l'intervalle texte (backend) en secondes
+// Permet de savoir quand clore une bougie (ex: '1m' = toutes les 60s)
+const getIntervalSeconds = (intervalStr) => {
+  const map = {
+    "1m": 60, "2m": 120, "5m": 300, "15m": 900, "30m": 1800,
+    "1h": 3600, "1d": 86400, "1wk": 604800, "1mo": 2592000
+  };
+  return map[intervalStr] || 86400; // Par défaut 1 jour si inconnu
+};
+
 export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo') {
   // Initialisation state
   const [data, setData] = useState(null);
@@ -21,22 +31,28 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
   const setPeriod = (p) => {
     setPeriodState(p);
     localStorage.setItem(VIEW_KEY, p);
-    fetchInitialSnapshot(ticker, p);
+    // Lors d'un changement utilisateur, on veut voir le loading
+    fetchInitialSnapshot(ticker, p, false);
   };
 
-  // 1. CHARGEMENT HTTP (LOURD - Une seule fois au début)
-  const fetchInitialSnapshot = useCallback(async (t, p) => {
+  // 1. CHARGEMENT HTTP (Snapshot initial + Sync Background)
+  const fetchInitialSnapshot = useCallback(async (t, p, isBackground = false) => {
     if (!t) return;
+    
+    // On ne montre le spinner que si c'est une action utilisateur explicite (pas en background)
+    if (!isBackground) setLoading(true);
+    
     try {
       const res = await marketApi.getSnapshot(t, p);
       if (isMountedRef.current) {
-        setData(res.data); // On charge l'historique ici
+        // En background sync, lightweight-charts gérera la transition fluidement
+        setData(res.data); 
         setError(null);
         setLoading(false);
       }
     } catch (err) {
       console.error("Snapshot Error:", err);
-      if (isMountedRef.current) {
+      if (isMountedRef.current && !isBackground) {
         setError("CONNECTION_FAILED");
         setLoading(false);
       }
@@ -53,14 +69,25 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
       };
   }, []);
 
-  // Trigger Snapshot si Ticker/Period change
+  // 2. ORCHESTRATION DU CHARGEMENT (Initial + Périodique)
   useEffect(() => {
       if (!ticker) return;
       currentTickerRef.current = ticker;
-      fetchInitialSnapshot(ticker, period);
+      
+      // A. Chargement immédiat
+      fetchInitialSnapshot(ticker, period, false);
+
+      // B. Background Re-validation (Toutes les 5 minutes)
+      // Permet de "nettoyer" l'historique (volumes exacts, corrections boursières)
+      // et d'éviter que le graphique ne diverge trop de la réalité sur le long terme.
+      const syncInterval = setInterval(() => {
+          fetchInitialSnapshot(ticker, period, true); // true = mode silencieux
+      }, 5 * 60 * 1000);
+
+      return () => clearInterval(syncInterval);
   }, [ticker, period, fetchInitialSnapshot]);
 
-  // 2. WEBSOCKET (LÉGER - Mises à jour rapides)
+  // 3. WEBSOCKET INTELLIGENT (Gestion temps réel des bougies)
   useEffect(() => {
     if (!ticker) return;
 
@@ -72,8 +99,6 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
       const ws = new WebSocket(`${WS_BASE_URL}/${ticker}`);
       wsRef.current = ws;
 
-      ws.onopen = () => { /* Connected */ };
-
       ws.onmessage = (event) => {
         if (!isMountedRef.current) return;
         
@@ -82,23 +107,66 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
           
           if (update.type === 'PRICE_UPDATE') {
             setData(prevData => {
-              // SÉCURITÉ ANTI-FREEZE :
-              // Si pas de données de base, on ne fait rien.
-              if (!prevData) return prevData;
+              // SÉCURITÉ : Si pas de données de base, on ne fait rien (on attend le snapshot)
+              if (!prevData || !prevData.chart || !prevData.chart.data.length) return prevData;
 
-              // 1. On met à jour UNIQUEMENT les infos "Live" (Header, Status)
-              // 2. ON NE TOUCHE PAS à prevData.chart.data (Array) !
-              //    C'est le composant StockChart qui s'occupera d'animer la dernière bougie
-              //    via la prop 'livePrice' qu'il reçoit par ailleurs.
+              const currentPrice = update.price;
+              const updateTime = update.timestamp; // Timestamp Unix (secondes) venant du backend
               
+              // A. Déterminer l'intervalle actuel (ex: 60s pour '1m')
+              const intervalStr = prevData.chart.meta.interval || "1d";
+              const intervalSec = getIntervalSeconds(intervalStr);
+
+              // B. Calculer le "Time Bucket" de la nouvelle donnée
+              // On aligne le temps sur la grille (ex: 10:01:45 -> 10:01:00 pour du 1m)
+              const bucketTime = Math.floor(updateTime / intervalSec) * intervalSec;
+              
+              // C. Récupérer la dernière bougie connue dans l'état local
+              const lastCandleIndex = prevData.chart.data.length - 1;
+              const lastCandle = prevData.chart.data[lastCandleIndex];
+              
+              // Conversion date ISO -> Unix timestamp pour comparaison
+              const lastCandleTime = new Date(lastCandle.date).getTime() / 1000;
+
+              // --- LOGIQUE DE BOUGIE ---
+              let newChartData = [...prevData.chart.data];
+
+              if (bucketTime > lastCandleTime) {
+                // CAS 1 : LE TEMPS A PASSÉ -> CRÉATION
+                // On fige la précédente et on push une nouvelle
+                const newCandle = {
+                    date: new Date(bucketTime * 1000).toISOString(),
+                    open: currentPrice,
+                    high: currentPrice,
+                    low: currentPrice,
+                    close: currentPrice,
+                    volume: 0 // Reset volume pour la nouvelle bougie
+                };
+                newChartData.push(newCandle);
+              } else {
+                // CAS 2 : MÊME INTERVALLE -> MISE À JOUR
+                // On met à jour les mèches (High/Low) et le corps (Close)
+                newChartData[lastCandleIndex] = {
+                    ...lastCandle,
+                    close: currentPrice,
+                    high: Math.max(lastCandle.high, currentPrice),
+                    low: Math.min(lastCandle.low, currentPrice),
+                    // Note: Sans flux volume tick-by-tick, on garde le volume existant
+                };
+              }
+
+              // On retourne le nouvel état complet
               return {
                 ...prevData,
                 live: {
-                    price: update.price,
+                    price: currentPrice,
                     change_pct: update.change_pct,
                     is_open: update.is_open
+                },
+                chart: {
+                    ...prevData.chart,
+                    data: newChartData
                 }
-                // On garde prevData.chart tel quel => Pas de changement de référence => Pas de re-render lourd du graph
               };
             });
           }
@@ -109,6 +177,7 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
 
       ws.onclose = () => {
         if (isExpectedClose) return;
+        // Reconnexion automatique intelligente si le composant est toujours monté
         if (isMountedRef.current && currentTickerRef.current === ticker) {
             retryTimeoutRef.current = setTimeout(connectWs, 3000);
         }
@@ -135,6 +204,7 @@ export function useMarketStream(ticker, _ignoredInterval, defaultPeriod = '1mo')
     error,
     period,
     setPeriod,
-    refresh: () => fetchInitialSnapshot(ticker, period)
+    // Permet de forcer un refresh manuel si besoin
+    refresh: () => fetchInitialSnapshot(ticker, period, false)
   };
 }
