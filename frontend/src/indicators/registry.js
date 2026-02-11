@@ -1,15 +1,17 @@
-import { SMA, EMA } from './definitions/trend';
-import { BB, ENV } from './definitions/volatility';
+// Import des définitions par module
+import * as Trend from './definitions/trend';
+import * as Volatility from './definitions/volatility';
+import * as Stops from './definitions/stops';
 
-// 1. La Map principale (pour accès rapide O(1))
+// 1. Aggrégation dans une Map principale
+// On spread les exports de chaque fichier
 const INDICATORS = {
-  SMA,
-  EMA,
-  BB,
-  ENV
+  ...Trend,
+  ...Volatility,
+  ...Stops
 };
 
-// 2. Liste pour les menus (Triée par catégorie ou alphabétique)
+// 2. Liste pour les menus (Triée)
 export const getAvailableIndicators = () => {
   return Object.values(INDICATORS).map(ind => ({
     id: ind.id,
@@ -19,25 +21,26 @@ export const getAvailableIndicators = () => {
   }));
 };
 
-// 3. Récupérer la config par défaut d'un indicateur
+// 3. Récupérer la config par défaut
 export const getIndicatorConfig = (id) => {
   const ind = INDICATORS[id];
   if (!ind) throw new Error(`Indicator ${id} not found in registry`);
   
-  // On extrait les valeurs par défaut des params defined
   const defaultParams = {};
-  Object.entries(ind.params).forEach(([key, config]) => {
-    defaultParams[key] = config.default;
-  });
+  if (ind.params) {
+    Object.entries(ind.params).forEach(([key, config]) => {
+      defaultParams[key] = config.default;
+    });
+  }
 
   return {
     id: ind.id,
     type: ind.type,
-    name: ind.name, // Nom de base
-    color: '#00f3ff', // Couleur par défaut système
+    name: ind.name,
+    color: '#00f3ff', // Couleur par défaut système, sera surchargée par le menu
     params: defaultParams,
     visible: true,
-    granularity: 'days' // Défaut global
+    granularity: 'days'
   };
 };
 
@@ -50,7 +53,7 @@ export const calculateIndicator = (config, chartData, dailyData) => {
     return definition.calculate(
       chartData, 
       dailyData, 
-      config.params, // On passe l'objet params complet (ex: { period: 20, stdDev: 2 })
+      config.params, 
       config.granularity
     );
   } catch (e) {
@@ -59,7 +62,7 @@ export const calculateIndicator = (config, chartData, dailyData) => {
   }
 };
 
-// 5. Récupérer le style de rendu
+// 5. Styles
 export const getIndicatorStyle = (id, color) => {
     const definition = INDICATORS[id];
     return definition ? definition.getStyles(color) : {};

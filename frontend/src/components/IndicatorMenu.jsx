@@ -1,5 +1,8 @@
 import { useState, useMemo } from 'react';
-import { Settings2, Wand2, Palette, Activity, ChevronRight, ChevronLeft, LineChart, Layers, BarChart3 } from 'lucide-react';
+import { 
+  Settings2, Wand2, Palette, Activity, ChevronRight, ChevronLeft, 
+  Layers, BarChart3, Zap, Anchor, TrendingUp, ArrowLeft 
+} from 'lucide-react';
 import { marketApi } from '../api/client';
 
 // Import du Registre et des Définitions
@@ -12,36 +15,70 @@ const PRESET_COLORS = [
   '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
 ];
 
+// DÉFINITION DES CATÉGORIES
+const CATEGORIES = [
+  { 
+    id: 'INERTIA', 
+    label: 'Inertia', 
+    icon: TrendingUp, 
+    color: 'text-neon-blue', 
+    desc: 'Trend Following & Momentum',
+    filter: (tags) => tags.includes('Trend') && !tags.includes('Stop') && !tags.includes('Reversal') 
+  },
+  { 
+    id: 'ENERGY', 
+    label: 'Energy', 
+    icon: Zap, 
+    color: 'text-neon-orange', 
+    desc: 'Volatility & Bands',
+    filter: (tags) => tags.includes('Volatility') || tags.includes('Band')
+  },
+  { 
+    id: 'GRAVITY', 
+    label: 'Gravity', 
+    icon: Anchor, 
+    color: 'text-neon-purple', 
+    desc: 'Stops, Reversals & Exits',
+    filter: (tags) => tags.includes('Stop') || tags.includes('Reversal')
+  }
+];
+
 export default function IndicatorMenu({ ticker, onAddIndicator }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState(null); // Juste l'ID
+  
+  // Navigation State
+  const [activeCategory, setActiveCategory] = useState(null); // 'INERTIA' | 'ENERGY' | 'GRAVITY'
+  const [selectedId, setSelectedId] = useState(null); // Indicator ID (ex: 'SMA')
+  
   const [mode, setMode] = useState('manual');
   const [loading, setLoading] = useState(false);
 
   // Form States Dynamiques
   const [color, setColor] = useState('#3b82f6');
   const [customName, setCustomName] = useState('');
-  
-  // NOUVEAU : On stocke tous les paramètres dans un objet (ex: { period: 20, stdDev: 2 })
   const [formParams, setFormParams] = useState({}); 
-  
-  // Granularité
   const [granularity, setGranularity] = useState('days');
-  
-  // Smart Params
   const [smartTarget, setSmartTarget] = useState(50);
   const [smartLookback, setSmartLookback] = useState(365);
 
-  // Récupération de la liste depuis le registre
-  const availableIndicators = useMemo(() => getAvailableIndicators(), []);
+  // Récupération de la liste complète
+  const allIndicators = useMemo(() => getAvailableIndicators(), []);
 
-  // Récupération de la définition complète de l'indicateur sélectionné (pour construire le UI)
+  // Filtrage des indicateurs selon la catégorie active
+  const filteredIndicators = useMemo(() => {
+    if (!activeCategory) return [];
+    const catDef = CATEGORIES.find(c => c.id === activeCategory);
+    return allIndicators.filter(ind => catDef.filter(ind.tags || []));
+  }, [activeCategory, allIndicators]);
+
+  // Récupération de la définition complète de l'indicateur sélectionné
   const currentDef = selectedId ? INDICATORS[selectedId] : null;
 
   const resetMenu = () => {
     setIsOpen(false);
     setTimeout(() => {
         setSelectedId(null);
+        setActiveCategory(null);
         setFormParams({});
         setMode('manual');
         setGranularity('days');
@@ -49,25 +86,22 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
     }, 200);
   };
 
-  const handleSelect = (ind) => {
+  const handleSelectIndicator = (ind) => {
     setSelectedId(ind.id);
     
-    // 1. Charger la config par défaut depuis le registre
+    // Charger la config par défaut
     const config = getIndicatorConfig(ind.id);
     setFormParams(config.params);
     setColor(config.color || '#3b82f6');
     setGranularity(config.granularity || 'days');
 
-    // 2. Initialisation Smart Target par défaut selon le type
+    // Init Smart Target par défaut
     if (ind.type === 'BAND') setSmartTarget(80);
     else setSmartTarget(50);
   };
 
   const handleParamChange = (key, value) => {
-    setFormParams(prev => ({
-        ...prev,
-        [key]: value
-    }));
+    setFormParams(prev => ({ ...prev, [key]: value }));
   };
 
   const handleSubmit = async (e) => {
@@ -78,13 +112,11 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
       let finalParams = { ...formParams };
       let displayName = customName;
 
-      // --- LOGIQUE SMART (Adaptée au registre) ---
-      // On garde les appels API existants, mais on mappe le résultat vers le bon paramètre
+      // --- LOGIQUE SMART ---
       if (mode === 'smart') {
         const decimalTarget = smartTarget / 100;
         let res;
 
-        // Note: L'API attend toujours des endpoints spécifiques pour le moment
         if (selectedId === 'SMA') {
             res = await marketApi.calculateSmartSMA(ticker, decimalTarget, smartLookback);
             finalParams.period = res.data.optimal_n;
@@ -95,39 +127,31 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
         } 
         else if (selectedId === 'ENV') {
             res = await marketApi.calculateSmartEnvelope(ticker, decimalTarget, smartLookback);
-            finalParams.deviation = res.data.optimal_k; // Mappé vers 'deviation' (défini dans volatility.js)
+            finalParams.deviation = res.data.optimal_k;
         } 
         else if (selectedId === 'BB') {
             res = await marketApi.calculateSmartBollinger(ticker, decimalTarget, smartLookback);
-            finalParams.stdDev = res.data.optimal_k; // Mappé vers 'stdDev' (défini dans volatility.js)
+            finalParams.stdDev = res.data.optimal_k;
         }
       }
 
-      // --- NOMMAGE AUTOMATIQUE GÉNÉRIQUE ---
+      // --- NOMMAGE AUTOMATIQUE ---
       if (!displayName) {
         const smartTag = mode === 'smart' ? ` [Smart ${smartTarget}%]` : '';
         const granTag = granularity === 'data' ? ' (Intraday)' : '';
-        
-        // On construit le nom basé sur les params principaux (le premier paramètre défini)
         const mainParamKey = Object.keys(finalParams)[0]; 
         const mainParamVal = finalParams[mainParamKey];
-        
         displayName = `${currentDef.name} (${mainParamVal})${smartTag}${granTag}`;
       }
 
-      // --- CREATION DE L'OBJET FINAL ---
       onAddIndicator({
         id: Date.now(),
-        type: selectedId, // Clé du registre (SMA, BB...)
-        style: currentDef.type, // LINE ou BAND (info venant de la définition)
-        
-        // Payload principal
+        type: selectedId,
+        style: currentDef.type,
         params: finalParams,
         granularity: granularity,
         color: color,
         name: displayName,
-
-        // Meta-data pour l'UI
         isSmart: mode === 'smart',
         smartParams: mode === 'smart' ? { target: smartTarget, lookback: smartLookback } : null
       });
@@ -139,12 +163,6 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Helper pour choisir l'icône dynamiquement
-  const getIcon = (type) => {
-      if (type === 'BAND') return Layers;
-      return LineChart;
   };
 
   return (
@@ -166,38 +184,76 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
           
           <div className="absolute top-full left-0 mt-2 w-80 bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col z-50">
             
-            {!selectedId ? (
-              /* --- LISTE DES INDICATEURS (GÉNÉRÉE DEPUIS LE REGISTRE) --- */
-              <div className="p-2 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
-                <div className="px-2 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-800 mb-1">
-                  Bibliothèque
+            {/* 1. NIVEAU RACINE : CATÉGORIES */}
+            {!activeCategory && !selectedId && (
+                <div className="p-2 space-y-2">
+                    <div className="px-2 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 mb-1 flex justify-between">
+                        <span>Systems Select</span>
+                        <span className="text-neon-blue">v4.2</span>
+                    </div>
+                    {CATEGORIES.map((cat) => {
+                        const Icon = cat.icon;
+                        return (
+                            <button
+                                key={cat.id}
+                                onClick={() => setActiveCategory(cat.id)}
+                                className="w-full relative group overflow-hidden border border-slate-800 bg-slate-950 p-4 text-left hover:border-slate-600 transition-all"
+                            >
+                                <div className={`absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-transform ${cat.color}`}>
+                                    <Icon size={64} />
+                                </div>
+                                <div className="relative z-10 flex items-center gap-3">
+                                    <div className={`p-2 rounded bg-slate-900 ${cat.color} group-hover:text-white transition-colors`}>
+                                        <Icon size={20} />
+                                    </div>
+                                    <div>
+                                        <div className={`text-sm font-bold tracking-widest uppercase ${cat.color} group-hover:text-white`}>
+                                            {cat.label}
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 mt-0.5">{cat.desc}</div>
+                                    </div>
+                                </div>
+                            </button>
+                        )
+                    })}
                 </div>
-                {availableIndicators.map((ind) => {
-                  const Icon = getIcon(ind.type);
-                  return (
-                    <button
-                        key={ind.id}
-                        onClick={() => handleSelect(ind)}
-                        className="w-full flex items-center justify-between p-3 hover:bg-slate-800 group transition text-left"
-                    >
-                        <div className="flex items-center gap-3">
-                        <div className="p-2 bg-slate-800 group-hover:bg-slate-700 text-emerald-400 transition">
-                            <Icon size={18} />
-                        </div>
-                        <div>
-                            <div className="text-sm font-bold text-slate-200">{ind.name}</div>
-                            <div className="text-[10px] text-slate-500 flex gap-2">
-                                {ind.tags?.map(t => <span key={t} className="bg-slate-800 px-1 rounded">{t}</span>)}
-                            </div>
-                        </div>
-                        </div>
-                        <ChevronRight size={14} className="text-slate-600 group-hover:text-white" />
+            )}
+
+            {/* 2. NIVEAU LISTE : INDICATEURS FILTRÉS */}
+            {activeCategory && !selectedId && (
+              <div className="flex flex-col h-full animate-in slide-in-from-right-10 duration-200">
+                 {/* Header Catégorie */}
+                 <div className="flex items-center gap-2 p-3 border-b border-slate-800 bg-slate-950">
+                    <button onClick={() => setActiveCategory(null)} className="text-slate-400 hover:text-white transition">
+                        <ArrowLeft size={16} />
                     </button>
-                  );
-                })}
+                    <span className={`text-xs font-bold uppercase tracking-wider ${CATEGORIES.find(c => c.id === activeCategory).color}`}>
+                        {CATEGORIES.find(c => c.id === activeCategory).label} Nodes
+                    </span>
+                 </div>
+
+                 {/* Liste */}
+                 <div className="p-1 max-h-[400px] overflow-y-auto custom-scrollbar">
+                    {filteredIndicators.map((ind) => (
+                        <button
+                            key={ind.id}
+                            onClick={() => handleSelectIndicator(ind)}
+                            className="w-full flex items-center justify-between p-3 hover:bg-slate-800 group transition text-left border-b border-slate-800/50 last:border-0"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="text-xs font-bold text-slate-200 group-hover:text-neon-blue transition-colors">
+                                    {ind.name}
+                                </div>
+                            </div>
+                            <ChevronRight size={14} className="text-slate-600 group-hover:text-white" />
+                        </button>
+                    ))}
+                 </div>
               </div>
-            ) : (
-              /* --- FORMULAIRE DE CONFIGURATION --- */
+            )}
+
+            {/* 3. NIVEAU CONFIGURATION */}
+            {selectedId && (
               <div className="animate-in slide-in-from-right-10 duration-200">
                 <div className="flex items-center gap-2 p-2 border-b border-slate-800 bg-slate-800/30">
                   <button 
@@ -227,7 +283,7 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                 <form onSubmit={handleSubmit} className="p-4 space-y-4">
                   {mode === 'manual' ? (
                     <>
-                        {/* --- GÉNÉRATION DYNAMIQUE DES INPUTS --- */}
+                        {/* --- INPUTS DYNAMIQUES --- */}
                         {currentDef && Object.entries(currentDef.params).map(([key, field]) => (
                              <div key={key} className="space-y-2">
                                 <label className="text-xs text-slate-400 font-bold uppercase">{field.label}</label>
@@ -255,7 +311,7 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                              </div>
                         ))}
 
-                        {/* --- SÉLECTEUR DE GRANULARITÉ --- */}
+                        {/* --- GRANULARITÉ --- */}
                         <div className="space-y-2">
                             <label className="text-xs text-slate-400 font-bold uppercase">Granularité</label>
                             <div className="flex bg-slate-950 border border-slate-700 rounded p-1">
@@ -277,7 +333,7 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                         </div>
                     </>
                   ) : (
-                    /* --- MODE SMART (UNCHANGED) --- */
+                    /* --- MODE SMART --- */
                     <div className="space-y-4">
                       <div className="p-3 bg-indigo-900/20 border border-indigo-900/50 text-xs text-indigo-200 leading-relaxed">
                         {currentDef.type === 'BAND' 
@@ -317,7 +373,7 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
 
                   <hr className="border-slate-800" />
 
-                  {/* --- GLOBAL SETTINGS (NOM & COULEUR) --- */}
+                  {/* --- GLOBAL SETTINGS --- */}
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <label className="text-xs text-slate-400 font-bold uppercase">Nom (Optionnel)</label>
