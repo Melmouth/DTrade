@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Trash2, AlertTriangle, Save, Server } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Save } from 'lucide-react';
 import { marketApi } from '../api/client';
 
 export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuke }) {
@@ -38,24 +38,6 @@ export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuk
         {/* Body */}
         <div className="p-6 space-y-8">
           
-          {/* Section: WebSocket Status (Anciennement Slider) */}
-          <div className="space-y-3 opacity-70 pointer-events-none grayscale">
-            <div className="flex justify-between">
-              <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                 <Server size={14} /> Protocole Streaming
-              </label>
-              <span className="text-xs font-mono font-bold bg-neon-blue/10 text-neon-blue px-2 py-0.5 rounded border border-neon-blue/20">
-                  WEBSOCKET (AUTO)
-              </span>
-            </div>
-            <div className="w-full bg-slate-800 h-1.5 rounded-lg overflow-hidden">
-                <div className="h-full bg-neon-blue w-full animate-pulse shadow-[0_0_10px_#00f3ff]"></div>
-            </div>
-            <div className="text-[10px] text-slate-500 italic">
-              Le mode 'Real-Time Push' est géré par le serveur. Latence minimale.
-            </div>
-          </div>
-
           {/* Section: History */}
           <div className="space-y-3">
             <label className="text-sm font-medium text-slate-300">Historique par défaut</label>
@@ -71,6 +53,9 @@ export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuk
               <option value="1y">1 An</option>
               <option value="ytd">Depuis début année (YTD)</option>
             </select>
+            <p className="text-[10px] text-slate-500 italic">
+              Définit la plage de temps chargée initialement à l'ouverture d'un graphique.
+            </p>
           </div>
 
           {/* Section: Danger Zone */}
