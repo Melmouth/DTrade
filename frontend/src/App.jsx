@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Activity, Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye 
 } from 'lucide-react';
@@ -17,6 +17,8 @@ import MarketStatus from './components/MarketStatus';
 // --- NEW CUSTOM HOOKS ---
 import { useIndicatorManager } from './hooks/useIndicatorManager';
 import { useMarketStream } from './hooks/useMarketStream';
+import { usePriceStore } from './hooks/usePriceStore';
+import { useGlobalStream } from './hooks/useGlobalStream'; // <-- IMPORT ÉTAPE D
 import { marketApi } from './api/client';
 
 const DEFAULT_SETTINGS = { wsInterval: 15, historyPeriod: '1mo' };
@@ -37,6 +39,12 @@ function App() {
 
   const [sidebarData, setSidebarData] = useState([]);
 
+  // --- ÉTAPE A & D : STORE GLOBAL ET FLUX SIDEBAR ---
+  const { prices: globalPrices, updatePrice } = usePriceStore();
+  
+  // On connecte le flux global qui alimente le store pour TOUS les tickers
+  useGlobalStream(updatePrice); 
+
   const [appSettings, setAppSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -44,11 +52,7 @@ function App() {
     } catch { return DEFAULT_SETTINGS; }
   });
 
-  // --- 2. INTEGRATION DU STREAM (FIX BOOT SEQUENCE) ---
-  
-  // ASTUCE : Tant que le boot n'est pas fini, on passe 'null' au hook.
-  // Le hook est conçu pour ne rien faire si le ticker est null.
-  // Cela empêche le WebSocket de bombarder l'app pendant l'animation.
+  // --- 2. INTEGRATION DU STREAM ACTIF (Graphique) ---
   const streamTicker = booted ? ticker : null;
 
   const { 
@@ -60,7 +64,14 @@ function App() {
     refresh: refetch 
   } = useMarketStream(streamTicker, appSettings.wsInterval, appSettings.historyPeriod);
 
-  // --- STABILISATION DES DONNÉES (Fix Freeze) ---
+  // --- ÉTAPE B : SYNCHRONISATION DU STORE (Ticker Actif) ---
+  useEffect(() => {
+    if (streamData?.live && ticker) {
+      updatePrice(ticker, streamData.live);
+    }
+  }, [streamData?.live, ticker, updatePrice]);
+
+  // --- STABILISATION DES DONNÉES ---
   const chartData = useMemo(() => {
       return streamData?.chart?.data || [];
   }, [streamData?.chart?.data]);
@@ -68,7 +79,6 @@ function App() {
   const dailyData = useMemo(() => {
       return streamData?.chart?.daily_data || streamData?.chart?.data || [];
   }, [streamData?.chart?.daily_data, streamData?.chart?.data]);
-  // ----------------------------------------------
 
   const chartMeta = streamData?.chart?.meta;
   const companyInfo = streamData?.info;
@@ -87,7 +97,6 @@ function App() {
   } = useIndicatorManager(ticker);
 
   // --- 4. LOGIQUE & EFFETS DE BORD ---
-
   useEffect(() => {
     loadSidebar();
   }, []);
@@ -142,24 +151,23 @@ function App() {
     setPreviewSeries(null);
   };
 
+  // --- UTILISATION DU PRIX CENTRALISÉ (Store) ---
   const displayPrice = useMemo(() => {
-    if (liveData?.price) return liveData.price;
+    const globalPrice = globalPrices[ticker]?.price;
+    if (globalPrice) return globalPrice;
     if (chartData && chartData.length > 0) return chartData[chartData.length - 1].close;
     return null;
-  }, [liveData, chartData]);
+  }, [globalPrices, ticker, chartData]);
 
   // --- 6. RENDER ---
-  
-  // --- RETABLISSEMENT DU BOOT SEQUENCE ---
   if (!booted) {
     return <BootSequence onComplete={() => setBooted(true)} />;
   }
-  // ---------------------------------------
 
   return (
     <div className="h-screen bg-black text-slate-300 font-mono flex flex-col overflow-hidden relative selection:bg-neon-blue selection:text-black">
       
-      {/* --- CRT GRIDLINES (OVERLAY) --- */}
+      {/* CRT GRIDLINES */}
       <div className="fixed inset-0 z-[100] pointer-events-none" 
            style={{ 
              background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 243, 255, 0.03) 3px)',
@@ -167,7 +175,6 @@ function App() {
            }}>
       </div>
       
-      {/* Vignette d'écran sombre */}
       <div className="fixed inset-0 z-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.5)_100%)]"></div>
 
       {/* HEADER */}
@@ -223,6 +230,7 @@ function App() {
           <Sidebar 
             data={sidebarData} 
             currentTicker={ticker}
+            globalPrices={globalPrices}
             onSelectTicker={handleSidebarSelect}
             onReload={loadSidebar}
           />
@@ -340,7 +348,6 @@ function App() {
                   />
               </div>
 
-              {/* FOOTER */}
               <div className="flex justify-between text-[10px] text-slate-700 font-mono tracking-[0.2em] select-none pt-4 opacity-50">
                   <div>SYS.ID: D-402-X</div>
                   <div>MEMORY: 64TB // ENCRYPTED</div>

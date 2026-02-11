@@ -3,57 +3,75 @@ import time
 from datetime import datetime
 from .websockets import manager
 from .services import market_data
+from .database import get_db
 
-UPDATE_INTERVAL = 15
+# Aligné sur l'intervalle 1m (avec une marge de sécurité)
+UPDATE_INTERVAL = 55
 
 def log(msg):
-    # En vert pour le worker
     print(f"\033[92m[{datetime.now().strftime('%H:%M:%S')}] [WORKER]\033[0m {msg}")
 
 async def market_data_worker():
-    log("Démarrage du Thread Background...")
+    log("Démarrage du Thread Background (Mode Unifié Bulk)...")
     
     while True:
         try:
             start_time = time.time()
-            tickers_to_fetch = list(manager.active_tickers)
             
-            if not tickers_to_fetch:
-                # log("Idle... Aucun ticker actif.") # Trop verbeux
+            # 1. RÉCUPÉRATION DE TOUS LES TICKERS D'INTÉRÊT
+            # On récupère ce qui est affiché à l'écran (Active) + ce qui est en favoris (Sidebar)
+            active_tickers = list(manager.active_tickers)
+            db_tickers = []
+            try:
+                with get_db() as conn:
+                    rows = conn.execute("SELECT DISTINCT ticker FROM portfolio_items").fetchall()
+                    db_tickers = [r['ticker'] for r in rows]
+            except Exception as e:
+                log(f"Erreur DB: {e}")
+
+            # Union des sets pour éviter les doublons
+            all_tickers = list(set(active_tickers + db_tickers))
+            
+            if not all_tickers:
                 await asyncio.sleep(1)
                 continue
 
-            log(f"Cycle Update: {tickers_to_fetch}")
+            log(f"Cycle Bulk : {len(all_tickers)} tickers (Graphiques actifs : {len(active_tickers)})")
 
-            for ticker in tickers_to_fetch:
-                try:
-                    # Mesure du temps API YFinance
-                    t0 = time.time()
-                    data = await asyncio.to_thread(market_data._fetch_live_data, ticker)
-                    t1 = time.time()
-                    
-                    if t1 - t0 > 1.0:
-                        log(f"⚠️ YFinance LENT pour {ticker}: {t1-t0:.2f}s")
+            # 2. FETCH UNIQUE (1 requête pour N tickers)
+            # Cette méthode retourne { ticker: { price, change_pct, is_open } }
+            bulk_data = await asyncio.to_thread(
+                market_data.provider.fetch_bulk_1m_status, 
+                all_tickers
+            )
 
-                    if data:
-                        payload = {
-                            "type": "PRICE_UPDATE",
-                            "ticker": ticker,
-                            "price": data.get("price"),
-                            "change_pct": data.get("change_pct"),
-                            "is_open": data.get("is_open"),
-                            "timestamp": time.time()
-                        }
-                        await manager.broadcast(ticker, payload)
-                        
-                except Exception as e:
-                    log(f"Erreur fetch {ticker}: {e}")
+            # 3. DIFFUSION CIBLÉE ET GLOBALE
+            for ticker in all_tickers:
+                data = bulk_data.get(ticker)
+                if not data:
+                    continue
+                
+                payload = {
+                    "type": "PRICE_UPDATE",
+                    "ticker": ticker,
+                    "price": data.get("price"),
+                    "change_pct": data.get("change_pct"),
+                    "is_open": data.get("is_open", False),
+                    "timestamp": time.time()
+                }
 
-            # Calcul du temps de sommeil pour garder le rythme
+                # Broadcast aux abonnés de ce ticker spécifique (ex: Graphique ouvert)
+                await manager.broadcast(ticker, payload)
+
+                # --- NOUVEAUTÉ : DIFFUSION AU CANAL GLOBAL (Pour la Sidebar vivante) ---
+                # On envoie la donnée au gestionnaire global qui la redistribuera à tous les clients
+                await manager.broadcast_global(payload)
+
+            # 4. CALCUL DU SOMMEIL (Sync sur 1 minute)
             elapsed = time.time() - start_time
             sleep_time = max(0.1, UPDATE_INTERVAL - elapsed)
             await asyncio.sleep(sleep_time)
 
         except Exception as e:
-            log(f"CRITICAL LOOP ERROR: {e}")
+            log(f"CRITICAL ERROR: {e}")
             await asyncio.sleep(5)

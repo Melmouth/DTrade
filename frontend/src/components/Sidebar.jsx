@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Folder, Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, Hash, Server, Shield } from 'lucide-react';
 import { marketApi } from '../api/client';
-// import MarketStatus from './MarketStatus'; // <-- DÉSACTIVER L'IMPORT
 
-export default function Sidebar({ data, onSelectTicker, onReload, currentTicker }) {
+export default function Sidebar({ data, onSelectTicker, onReload, currentTicker, globalPrices }) {
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [expandedIds, setExpandedIds] = useState([]);
@@ -128,7 +127,10 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
                       </div>
                     )}
                     {portfolio.items.map((item) => {
-                      const isPositive = item.change_pct >= 0;
+                      // --- LOGIQUE TEMPS RÉEL ---
+                      const liveInfo = globalPrices?.[item.ticker];
+                      const displayPct = liveInfo ? liveInfo.change_pct : item.change_pct;
+                      const isPositive = displayPct >= 0;
                       const isActive = currentTicker === item.ticker;
                       
                       return (
@@ -149,17 +151,11 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
                           <div className="flex items-center gap-2">
                              <Hash size={10} className="text-slate-700" />
                              <span className="font-mono font-bold tracking-widest">{item.ticker}</span>
-                             
-                             {/* --- MODIFICATION CRITIQUE : RETRAIT DU COMPOSANT QUI SPAM L'API --- */}
-                             {/* <div className="ml-2">
-                                <MarketStatus ticker={item.ticker} type="compact" />
-                             </div> */}
-                             {/* ------------------------------------------------------------------- */}
                           </div>
                           
                           <div className="flex items-center gap-3">
                             <span className={`flex items-center gap-1 text-[10px] font-bold ${isPositive ? 'text-neon-green' : 'text-neon-red'}`}>
-                              {isPositive ? '+' : ''}{item.change_pct}%
+                              {isPositive ? '+' : ''}{displayPct}%
                               {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                             </span>
                             

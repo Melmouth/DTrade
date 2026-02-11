@@ -61,3 +61,31 @@ class YFinanceProvider(MarketDataProvider):
         except Exception as e:
             print(f"[YF Provider] Error live: {e}")
             return {"price": 0, "change_pct": 0, "is_open": False, "next_event": None}
+
+    def fetch_bulk_1m_status(self, tickers: list):
+        """
+        Récupère les données 1m pour tous les tickers en une seule requête.
+        """
+        if not tickers: return {}
+        try:
+            # On télécharge les 2 derniers jours en 1m pour avoir la bougie actuelle et la précédente
+            data = yf.download(tickers, period="2d", interval="1m", group_by='ticker', threads=True, progress=False)
+            results = {}
+            
+            for t in tickers:
+                df = data[t] if len(tickers) > 1 else data
+                df = df.dropna(subset=['Close']) # Nettoyage des lignes vides
+                
+                if not df.empty:
+                    last_price = df['Close'].iloc[-1]
+                    prev_close = df['Close'].iloc[-2] if len(df) > 1 else last_price
+                    
+                    results[t] = {
+                        "price": round(last_price, 2),
+                        "change_pct": round(((last_price - prev_close) / prev_close) * 100, 2),
+                        "is_open": True # Simplifié ici, peut être couplé au calendrier
+                    }
+            return results
+        except Exception as e:
+            print(f"[YF Bulk] Error: {e}")
+            return {}

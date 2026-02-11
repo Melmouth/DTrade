@@ -41,6 +41,16 @@ app.include_router(market.router)
 app.include_router(indicators.router)
 app.include_router(portfolio.router)
 
+@app.websocket("/ws/global")
+async def global_websocket_endpoint(websocket: WebSocket):
+    log("WS", "Connexion au flux GLOBAL...")
+    await manager.connect_global(websocket)
+    try:
+        while True:
+            await websocket.receive_text() # Garde la connexion ouverte
+    except WebSocketDisconnect:
+        manager.disconnect_global(websocket)
+
 # --- WEBSOCKET ENDPOINT ---
 @app.websocket("/ws/{ticker}")
 async def websocket_endpoint(websocket: WebSocket, ticker: str):
