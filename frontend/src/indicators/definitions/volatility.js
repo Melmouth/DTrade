@@ -1,47 +1,81 @@
-import { calculateBollinger, calculateEnvelope } from '../../utils/math';
+import { 
+  calculateBollinger, calculateEnvelope, calculateKeltner, 
+  calculateDonchian, calculateReg, calculateSTARC 
+} from '../../utils/math';
 
 export const BB = {
   id: 'BB',
   name: 'Bollinger Bands',
-  type: 'BAND', // Type spécial qui retourne { upper, lower, basis }
-  tags: ['Volatility', 'Channel'],
-
+  type: 'BAND',
+  tags: ['Volatility', 'StdDev'],
   params: {
     period: { type: 'number', label: 'Période', default: 20 },
-    stdDev: { type: 'number', label: 'Multiplicateur (σ)', default: 2.0, min: 0.1, max: 5.0, step: 0.1 }
+    stdDev: { type: 'number', label: 'Deviation (σ)', default: 2.0, step: 0.1 }
   },
-
-  // Mapping des params vers ta fonction math existante
-  calculate: (chartData, dailyData, params, granularity) => {
-    // Note: Ta fonction math attend (data, daily, factor, period, gran)
-    // Ici on map params.stdDev vers factor
-    return calculateBollinger(chartData, dailyData, params.stdDev, params.period, granularity);
-  },
-
-  getStyles: (userColor) => ({
-    type: 'Band', // Indique au Chart qu'il faut dessiner 3 lignes + zone
-    color: userColor || '#00f3ff',
-    areaColor: userColor ? `${userColor}10` : '#00f3ff10' // Opacité 10% hex
-  })
+  calculate: (data, daily, p, gran) => calculateBollinger(data, daily, p.stdDev, p.period, gran),
+  getStyles: (c) => ({ type: 'Band', color: c || '#00B0FF', areaColor: c ? `${c}15` : '#00B0FF15' })
 };
 
 export const ENV = {
   id: 'ENV',
   name: 'Envelope Channel',
   type: 'BAND',
-  tags: ['Volatility', 'Percentage'],
-
+  tags: ['Volatility', 'Fixed'],
   params: {
     period: { type: 'number', label: 'Période', default: 20 },
-    deviation: { type: 'number', label: 'Écart (%)', default: 5.0, min: 0.1, max: 20.0, step: 0.1 }
+    deviation: { type: 'number', label: 'Écart (%)', default: 5.0, step: 0.5 }
   },
+  calculate: (data, daily, p, gran) => calculateEnvelope(data, daily, p.deviation, p.period, gran),
+  getStyles: (c) => ({ type: 'Band', color: c || '#FFAB00', areaColor: c ? `${c}15` : '#FFAB0015' })
+};
 
-  calculate: (chartData, dailyData, params, granularity) => {
-    return calculateEnvelope(chartData, dailyData, params.deviation, params.period, granularity);
+export const KELT = {
+  id: 'KELT',
+  name: 'Keltner Channels',
+  type: 'BAND',
+  tags: ['Volatility', 'ATR'],
+  params: {
+    period: { type: 'number', label: 'Période EMA', default: 20 },
+    multiplier: { type: 'number', label: 'Multiplier (ATR)', default: 1.5, step: 0.1 }
   },
+  calculate: (data, daily, p, gran) => calculateKeltner(data, daily, p.multiplier, p.period, gran),
+  getStyles: (c) => ({ type: 'Band', color: c || '#76FF03', areaColor: c ? `${c}15` : '#76FF0315' })
+};
 
-  getStyles: (userColor) => ({
-    type: 'Band',
-    color: userColor || '#eab308'
-  })
+export const DONCH = {
+  id: 'DONCH',
+  name: 'Donchian Channels',
+  type: 'BAND',
+  tags: ['Volatility', 'Extremes'],
+  params: {
+    period: { type: 'number', label: 'Période', default: 20 }
+  },
+  calculate: (data, daily, p, gran) => calculateDonchian(data, daily, p.period, gran),
+  getStyles: (c) => ({ type: 'Band', color: c || '#F50057', areaColor: c ? `${c}15` : '#F5005715' })
+};
+
+export const REG = {
+  id: 'REG',
+  name: 'Linear Reg. Channel',
+  type: 'BAND',
+  tags: ['Volatility', 'Statistics'],
+  params: {
+    period: { type: 'number', label: 'Période', default: 20 },
+    deviation: { type: 'number', label: 'Deviation (σ)', default: 2.0, step: 0.1 }
+  },
+  calculate: (data, daily, p, gran) => calculateReg(data, daily, p.deviation, p.period, gran),
+  getStyles: (c) => ({ type: 'Band', color: c || '#651FFF', areaColor: c ? `${c}15` : '#651FFF15' })
+};
+
+export const STARC = {
+  id: 'STARC',
+  name: 'STARC Bands',
+  type: 'BAND',
+  tags: ['Volatility', 'ATR'],
+  params: {
+    period: { type: 'number', label: 'Période SMA', default: 15 },
+    multiplier: { type: 'number', label: 'Multiplier (ATR)', default: 2.0, step: 0.1 }
+  },
+  calculate: (data, daily, p, gran) => calculateSTARC(data, daily, p.multiplier, p.period, gran),
+  getStyles: (c) => ({ type: 'Band', color: c || '#FF3D00', areaColor: c ? `${c}15` : '#FF3D0015' })
 };

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Activity, Search, Settings, X, Eye, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye } from 'lucide-react';
-
+import { 
+  Activity, Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye 
+} from 'lucide-react';
 // --- COMPONENTS ---
 import SettingsModal from './components/SettingsModal';
 import Sidebar from './components/Sidebar';
