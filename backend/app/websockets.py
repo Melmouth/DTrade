@@ -6,9 +6,29 @@ def log(msg):
     print(f"\033[93m[{datetime.now().strftime('%H:%M:%S')}] [MANAGER]\033[0m {msg}")
 
 class ConnectionManager:
+
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
         self.active_tickers: Set[str] = set()
+        self.global_connections: List[WebSocket] = [] # Nouveau
+
+    async def connect_global(self, websocket: WebSocket):
+        await websocket.accept()
+        self.global_connections.append(websocket)
+        log("Global Client connecté.")
+
+    def disconnect_global(self, websocket: WebSocket):
+        if websocket in self.global_connections:
+            self.global_connections.remove(websocket)
+            log("Global Client déconnecté.")
+
+    async def broadcast_global(self, message: dict):
+        """Diffuse à tous les clients écoutant le flux global"""
+        for connection in list(self.global_connections):
+            try:
+                await connection.send_json(message)
+            except Exception:
+                self.disconnect_global(connection)
 
     async def connect(self, websocket: WebSocket, ticker: str):
         await websocket.accept()
