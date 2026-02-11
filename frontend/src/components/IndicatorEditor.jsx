@@ -1,19 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Activity, RotateCw, Palette, Layers, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { X, Save, Activity, RotateCw, Palette, Layers, BarChart3, SlidersHorizontal, CalendarClock, LineChart } from 'lucide-react';
 import { calculateIndicator, default as INDICATORS } from '../indicators/registry';
 
 const COLORS = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', 
-  '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e', '#ffffff'
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+  '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
+  '#f43f5e', '#fda4af', '#fdba74', '#fde047', '#bef264', '#86efac', '#6ee7b7', '#5eead4',
+  '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
 ];
 
 export default function IndicatorEditor({ indicator, chartData, dailyData, onClose, onSave, onPreview }) {
   const [isVisualLoading, setIsVisualLoading] = useState(false);
   
-  // On récupère la définition complète depuis le registre
   const definition = INDICATORS[indicator.type];
 
-  // Identification du paramètre principal pour le "Gros Slider" (le premier paramètre numérique)
+  // Identification du paramètre principal
   const mainParamKey = useMemo(() => {
     if (!definition) return null;
     return Object.keys(definition.params).find(k => definition.params[k].type === 'number');
@@ -21,29 +22,24 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
 
   const mainParamConfig = definition ? definition.params[mainParamKey] : {};
 
-  // État local des paramètres (tous les params : period, stdDev, source, etc.)
   const [localParams, setLocalParams] = useState(indicator.params || {});
   const [color, setColor] = useState(indicator.color);
   const [name, setName] = useState(indicator.name);
   const [granularity, setGranularity] = useState(indicator.granularity || 'days');
 
-  // Valeur actuelle pour le slider principal
   const sliderValue = localParams[mainParamKey] || mainParamConfig.default || 20;
 
-  // 1. LIVE PREVIEW (Calcul à la volée pour réactivité totale)
+  // LIVE PREVIEW
   useEffect(() => {
     if (!definition) return;
-
-    // Petit délai pour éviter de spammer le calcul si on tape vite
     const timer = setTimeout(() => {
         setIsVisualLoading(true);
         requestAnimationFrame(() => {
             try {
-                // On recalcule avec l'ensemble des paramètres actuels (localParams)
                 const dataToPreview = calculateIndicator(
                     { id: indicator.type, params: localParams, granularity },
                     chartData,
-                    dailyData
+                    dailyData // <-- On passe bien le contexte Daily ici
                 );
 
                 if (dataToPreview) {
@@ -52,7 +48,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                         name: name,
                         color: color,
                         granularity: granularity,
-                        params: localParams, // On renvoie tout l'objet params
+                        params: localParams,
                         data: dataToPreview 
                     });
                 }
@@ -62,18 +58,13 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 setIsVisualLoading(false);
             }
         });
-    }, 50); // Debounce très court (50ms)
+    }, 50);
 
     return () => clearTimeout(timer);
   }, [localParams, color, name, granularity, indicator, chartData, dailyData, definition]);
 
-
-  // Handler générique pour tous les inputs
   const handleParamChange = (key, value) => {
-      setLocalParams(prev => ({
-          ...prev,
-          [key]: value
-      }));
+      setLocalParams(prev => ({ ...prev, [key]: value }));
   };
 
   const handleSave = () => {
@@ -93,10 +84,8 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
     <div className="absolute top-4 right-4 z-50 w-80 animate-in fade-in zoom-in duration-300">
       <div className="bg-slate-900/90 backdrop-blur-xl border border-neon-blue/50 shadow-[0_0_40px_rgba(0,243,255,0.1)] overflow-hidden relative rounded-sm">
         
-        {/* Header Line */}
         <div className="h-0.5 w-full bg-gradient-to-r from-neon-blue via-neon-purple to-neon-blue"></div>
         
-        {/* Title Bar */}
         <div className="flex items-center justify-between p-3 border-b border-white/10 bg-black/40">
            <div className="flex items-center gap-2 text-neon-blue">
               <Activity size={16} />
@@ -112,7 +101,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
 
         <div className="p-4 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
             
-            {/* 1. ZONE QUICK TUNE (Slider Principal) */}
             {mainParamKey && (
                 <div className="space-y-2 bg-slate-800/50 p-3 rounded border border-slate-700/50">
                     <div className="flex justify-between items-end mb-1">
@@ -135,9 +123,8 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 </div>
             )}
 
-            {/* 2. ZONE FINE TUNING (Tous les paramètres) */}
             <div className="space-y-3">
-                <div className="text-[10px] uppercase text-slate-500 font-bold border-b border-white/5 pb-1">Paramètres Détaillés</div>
+                <div className="text-[10px] uppercase text-slate-500 font-bold border-b border-white/5 pb-1">Paramètres</div>
                 
                 {Object.entries(definition.params).map(([key, config]) => (
                     <div key={key} className="space-y-1">
@@ -164,7 +151,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                                     onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
                                     className="flex-1 bg-black/50 border border-slate-700 p-1.5 text-xs text-white focus:border-neon-blue outline-none font-mono rounded-sm"
                                 />
-                                {/* Petit texte d'aide pour les bornes */}
                                 <span className="text-[9px] text-slate-600 font-mono">
                                     [{config.min}-{config.max}]
                                 </span>
@@ -176,25 +162,26 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
 
             <hr className="border-white/10" />
 
-            {/* 3. GRANULARITÉ & APPARENCE */}
             <div className="grid grid-cols-2 gap-4">
-                {/* Granularité */}
+                {/* Granularité - SECTION REFAITE */}
                 <div className="space-y-2">
                     <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
-                        <Layers size={10} /> Mode
+                        <Layers size={10} /> Timeframe Source
                     </label>
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1.5">
                         <button
                             onClick={() => setGranularity('days')}
-                            className={`px-2 py-1 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'days' ? 'bg-slate-700 border-slate-500 text-white' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
+                            className={`flex items-center justify-between px-2 py-1.5 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'days' ? 'bg-slate-700 border-slate-500 text-white shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
                         >
-                            Daily (J)
+                            <span className="flex items-center gap-2"><CalendarClock size={12}/> Daily (Macro)</span>
+                            {granularity === 'days' && <div className="w-1.5 h-1.5 bg-neon-green rounded-full shadow-[0_0_5px_#00ff41]"></div>}
                         </button>
                         <button
                             onClick={() => setGranularity('data')}
-                            className={`px-2 py-1 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'data' ? 'bg-neon-blue/20 border-neon-blue text-neon-blue' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
+                            className={`flex items-center justify-between px-2 py-1.5 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'data' ? 'bg-neon-blue/10 border-neon-blue text-neon-blue shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
                         >
-                            Chart (D)
+                            <span className="flex items-center gap-2"><LineChart size={12}/> Chart (Intraday)</span>
+                             {granularity === 'data' && <div className="w-1.5 h-1.5 bg-neon-blue rounded-full shadow-[0_0_5px_#00f3ff]"></div>}
                         </button>
                     </div>
                 </div>
@@ -204,8 +191,8 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                     <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
                         <Palette size={10} /> Couleur
                     </label>
-                    <div className="grid grid-cols-5 gap-1">
-                        {COLORS.slice(0, 10).map(c => (
+                    <div className="grid grid-cols-5 gap-1 content-start">
+                        {COLORS.slice(0, 32).map(c => (
                             <button
                                 key={c}
                                 onClick={() => setColor(c)}
@@ -217,7 +204,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 </div>
             </div>
 
-            {/* Nom Custom */}
              <div className="space-y-1 pt-2">
                 <input 
                     type="text" 
@@ -228,7 +214,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 />
             </div>
 
-            {/* FOOTER */}
             <div className="pt-2">
                 <button 
                     onClick={handleSave}

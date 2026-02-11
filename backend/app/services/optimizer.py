@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from datetime import timedelta
-from .market_data import get_clean_history
+from .market_data import get_internal_history
 
 # --- MATH HELPERS ---
 def calculate_wma(series, period):

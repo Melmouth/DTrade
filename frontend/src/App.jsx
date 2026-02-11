@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   Activity, Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye 
 } from 'lucide-react';
+
 // --- COMPONENTS ---
 import SettingsModal from './components/SettingsModal';
 import Sidebar from './components/Sidebar';
@@ -13,10 +14,9 @@ import BootSequence from './components/BootSequence';
 import CompanyInfo from './components/CompanyInfo';
 import MarketStatus from './components/MarketStatus';
 
-// --- CUSTOM HOOKS (Le Refactoring) ---
+// --- NEW CUSTOM HOOKS (Refactored) ---
 import { useIndicatorManager } from './hooks/useIndicatorManager';
-import { useMarketData } from './hooks/useMarketData';
-import { useLiveFeed } from './hooks/useLiveFeed';
+import { useMarketStream } from './hooks/useMarketStream'; // Le nouveau hook unifié
 import { marketApi } from './api/client';
 
 const DEFAULT_SETTINGS = { wsInterval: 15, historyPeriod: '1mo' };
@@ -25,15 +25,19 @@ const STORAGE_KEYS = { SETTINGS: 'trading_settings' };
 function App() {
   // --- 1. ÉTATS UI GLOBAUX ---
   const [booted, setBooted] = useState(false);
-  const [ticker, setTicker] = useState('MSFT');
+  
+  // FIX: Séparation du Ticker Actif (Données) et de l'Input de Recherche (UI)
+  const [ticker, setTicker] = useState('MSFT'); 
+  const [searchInput, setSearchInput] = useState('MSFT');
+
   const [showSettings, setShowSettings] = useState(false);
   const [showCompanyInfo, setShowCompanyInfo] = useState(false);
   
-  // États de l'éditeur d'indicateur (Restent dans App car ce sont des états UI éphémères)
+  // États de l'éditeur d'indicateur
   const [editingIndicator, setEditingIndicator] = useState(null);
   const [previewSeries, setPreviewSeries] = useState(null);
 
-  // Sidebar Data (Léger, on le garde ici pour l'instant)
+  // Sidebar Data
   const [sidebarData, setSidebarData] = useState([]);
 
   // Settings App
@@ -44,22 +48,30 @@ function App() {
     } catch { return DEFAULT_SETTINGS; }
   });
 
-  // --- 2. INTEGRATION DES HOOKS ---
-  
-  // Gestion des Données Historiques & Périodes
+  // --- 2. INTEGRATION DU STREAM UNIFIÉ ---
+  // Remplace useMarketData ET useLiveFeed par un seul flux synchronisé
   const { 
-    chartData, 
-    dailyData, 
-    meta: chartMeta, 
+    data: streamData, 
     loading, 
     error, 
-    activePeriod: currentPeriod, 
+    period: currentPeriod, 
     setPeriod: handlePeriodChange, 
-    refetch,
-    nukeViews 
-  } = useMarketData(ticker, appSettings.historyPeriod);
+    refresh: refetch 
+  } = useMarketStream(ticker, appSettings.wsInterval, appSettings.historyPeriod);
 
-  // Gestion des Indicateurs (CRUD + Persistance)
+  // Extraction des données du Snapshot
+  // Note : On gère les fallbacks pour éviter les crashs si le stream est vide au début
+  const chartData = streamData?.chart?.data || [];
+  // Si daily_data absent du snapshot, on utilise chartData par défaut (fallback)
+  const dailyData = streamData?.chart?.daily_data || streamData?.chart?.data || [];
+  const chartMeta = streamData?.chart?.meta;
+  const companyInfo = streamData?.info;
+  const liveData = streamData?.live; // { price, change_pct, is_open ... }
+  
+  // On considère connecté si pas d'erreur critique et qu'on a reçu au moins un paquet
+  const isConnected = !error && streamData !== null;
+
+  // --- 3. GESTION DES INDICATEURS ---
   const { 
     indicators: currentIndicators, 
     addIndicator: handleAddIndicator, 
@@ -69,14 +81,7 @@ function App() {
     nukeIndicators 
   } = useIndicatorManager(ticker);
 
-  // Gestion du Flux Live (WebSocket)
-  const { 
-    quote: liveQuote, 
-    livePrice, 
-    isConnected 
-  } = useLiveFeed(ticker, appSettings.wsInterval);
-
-  // --- 3. LOGIQUE & EFFETS DE BORD ---
+  // --- 4. LOGIQUE & EFFETS DE BORD ---
 
   // Chargement Sidebar
   useEffect(() => {
@@ -90,30 +95,41 @@ function App() {
     } catch (err) { console.error("Sidebar load error", err); }
   };
 
-  // Handler Search (Force le refetch si on tape entrée sur le même ticker)
+  // Handler Search FIXÉ : Ne met à jour le ticker que sur Submit
   const handleSearch = (e) => {
     e.preventDefault();
-    refetch(); 
+    if (searchInput.trim()) {
+        setTicker(searchInput.toUpperCase());
+        // Le hook useMarketStream détectera le changement de 'ticker' et fetchera tout seul
+    }
+  };
+
+  // Handler Sidebar FIXÉ : Met à jour ticker ET barre de recherche
+  const handleSidebarSelect = (selectedTicker) => {
+      setTicker(selectedTicker);
+      setSearchInput(selectedTicker);
   };
 
   // Handler Settings Save
   const handleSettingsSave = (newSettings) => {
     setAppSettings(newSettings);
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
-    // Si la période historique par défaut change, le hook useMarketData s'adaptera au prochain mount ou changement de ticker
+    // useMarketStream réagira automatiquement au changement de wsInterval ou historyPeriod
   };
 
-  // Handler Nuke (Reset Total)
+  // Handler Nuke
   const handleNuke = () => {
     setTicker('MSFT');
+    setSearchInput('MSFT');
     nukeIndicators();
-    nukeViews();
+    // Plus besoin de nukeViews ici, useMarketStream gère son propre état
     loadSidebar();
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
     setAppSettings(DEFAULT_SETTINGS);
+    refetch();
   };
 
-  // Wrappers pour l'éditeur d'indicateur
+  // Editeurs wrappers
   const updateIndicator = (updatedInd) => {
     hookUpdateIndicator(updatedInd);
     setEditingIndicator(null);
@@ -130,15 +146,15 @@ function App() {
     setPreviewSeries(null);
   };
 
-  // --- 4. LOGIQUE D'AFFICHAGE PRIX (Fallback Historique si Live pas encore là) ---
-  // Pour éviter le "0.00" ou "---" au chargement avant que le WS ne connecte
+  // --- 5. LOGIQUE D'AFFICHAGE PRIX ---
+  // Priorité au Live Data du stream, sinon dernière clôture du graph
   const displayPrice = useMemo(() => {
-    if (livePrice) return livePrice;
+    if (liveData?.price) return liveData.price;
     if (chartData && chartData.length > 0) return chartData[chartData.length - 1].close;
     return null;
-  }, [livePrice, chartData]);
+  }, [liveData, chartData]);
 
-  // --- 5. RENDER ---
+  // --- 6. RENDER ---
   if (!booted) {
     return <BootSequence onComplete={() => setBooted(true)} />;
   }
@@ -174,7 +190,7 @@ function App() {
         <div className="flex gap-6 items-center">
           <div className="hidden lg:flex items-center gap-4 text-[10px] text-slate-500 font-bold tracking-wider">
               <div className="flex items-center gap-1"><ShieldCheck size={12}/> SECURE_CONN</div>
-              <div className="flex items-center gap-1"><Wifi size={12}/> {appSettings.wsInterval * 10}ms</div>
+              <div className="flex items-center gap-1"><Wifi size={12}/> {appSettings.wsInterval}s REFRESH</div>
           </div>
 
           <form onSubmit={handleSearch} className="flex gap-0 group relative">
@@ -182,10 +198,11 @@ function App() {
                 <div className="bg-slate-900 border border-slate-700 border-r-0 px-2 flex items-center text-slate-500 group-hover:text-neon-blue transition-colors">
                     <Terminal size={14} />
                 </div>
+                {/* INPUT FIXÉ : Utilise searchInput et onChange local */}
                 <input 
                 type="text" 
-                value={ticker}
-                onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
                 className="bg-black border border-slate-700 border-x-0 w-24 md:w-32 text-sm text-white focus:outline-none focus:bg-slate-900/50 placeholder:text-slate-700 uppercase tracking-wider"
                 placeholder="TICKER"
                 />
@@ -210,7 +227,7 @@ function App() {
           <Sidebar 
             data={sidebarData} 
             currentTicker={ticker}
-            onSelectTicker={setTicker}
+            onSelectTicker={handleSidebarSelect} // FIX: Utilise le handler qui update aussi l'input
             onReload={loadSidebar}
           />
         </aside>
@@ -245,7 +262,8 @@ function App() {
                  </div>
                  
                  <div className="mb-2 md:mb-0 md:ml-auto md:mr-6">
-                    <MarketStatus ticker={ticker} type="full" />
+                    {/* On passe les données live au composant pour éviter qu'il refetch tout seul */}
+                    <MarketStatus ticker={ticker} type="full" data={liveData} />
                  </div>
 
                  <div className="text-right">
@@ -330,7 +348,7 @@ function App() {
                     onPeriodChange={handlePeriodChange}
                     indicators={currentIndicators}
                     previewSeries={previewSeries}
-                    livePrice={livePrice}
+                    livePrice={displayPrice}
                   />
               </div>
 
@@ -357,7 +375,8 @@ function App() {
       <CompanyInfo 
         ticker={ticker} 
         isOpen={showCompanyInfo} 
-        onClose={() => setShowCompanyInfo(false)} 
+        onClose={() => setShowCompanyInfo(false)}
+        preloadedData={companyInfo} 
       />
     </div>
   );
