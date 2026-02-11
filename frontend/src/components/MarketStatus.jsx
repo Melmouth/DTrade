@@ -2,53 +2,69 @@ import { useState, useEffect } from 'react';
 import { Clock, Wifi, WifiOff } from 'lucide-react';
 import { marketApi } from '../api/client';
 
-export default function MarketStatus({ ticker, type = 'full' }) {
-  const [status, setStatus] = useState(null);
-  const [timeLeft, setTimeLeft] = useState('');
+export default function MarketStatus({ ticker, type = 'full', data = null }) {
+  const [localStatus, setLocalStatus] = useState(null);
+  const [timeLeft, setTimeLeft] = useState('--:--:--');
 
-  // 1. Fetch data au changement de ticker
+  // STRATÉGIE HYBRIDE :
+  // Si le parent (App.jsx) nous donne 'data', on l'utilise (Stream).
+  // Sinon, on utilise 'localStatus' qu'on va aller chercher nous-mêmes (Sidebar).
+  const status = data || localStatus;
+
+  // 1. FETCH LOGIC (Seulement si aucune data n'est fournie en props)
   useEffect(() => {
+    // Si on a déjà des données via le parent, on ne fetch pas (Optimisation Header)
+    if (data) return; 
+    if (!ticker) return;
+
     let isMounted = true;
     const fetchStatus = async () => {
       try {
         const res = await marketApi.getMarketStatus(ticker);
-        if (isMounted) setStatus(res.data);
+        if (isMounted) setLocalStatus(res.data);
       } catch (e) {
-        console.error(e);
+        console.error("Status fetch failed", e);
       }
     };
-    fetchStatus();
-    // Refresh toutes les minutes pour recalibrer
-    const interval = setInterval(fetchStatus, 60000); 
-    return () => { isMounted = false; clearInterval(interval); };
-  }, [ticker]);
 
-  // 2. Timer local (seconde par seconde)
+    fetchStatus();
+    // Refresh lent (1min) pour la sidebar uniquement
+    const interval = setInterval(fetchStatus, 60000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, [ticker, data]);
+
+  // 2. COUNTDOWN LOGIC
   useEffect(() => {
     if (!status?.next_event) return;
 
-    const timer = setInterval(() => {
+    const calculateTime = () => {
       const now = new Date();
       const target = new Date(status.next_event);
       const diff = target - now;
 
       if (diff <= 0) {
-        // Le temps est écoulé, on devrait refetcher le status
         setTimeLeft("00:00:00");
       } else {
         const h = Math.floor(diff / (1000 * 60 * 60));
         const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         const s = Math.floor((diff % (1000 * 60)) / 1000);
-        setTimeLeft(`${h}h ${m}m ${s}s`);
+        // Padding pour afficher "05m" au lieu de "5m"
+        setTimeLeft(`${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`);
       }
-    }, 1000);
+    };
+
+    calculateTime(); // Calcul immédiat
+    const timer = setInterval(calculateTime, 1000);
 
     return () => clearInterval(timer);
   }, [status]);
 
   if (!status) return null;
 
-  const isOpen = status.state === 'OPEN';
+  // --- FIX CRITIQUE ICI ---
+  // Le nouveau backend renvoie un booléen 'is_open', pas une string 'state'
+  const isOpen = status.is_open; 
+  // -----------------------
 
   // --- RENDER MODE: COMPACT (Pour la Sidebar) ---
   if (type === 'compact') {

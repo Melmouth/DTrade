@@ -1,28 +1,89 @@
 import { useState, useEffect } from 'react';
-import { X, Globe, Building2, TrendingUp, DollarSign, Activity, Users, ShieldAlert, Cpu } from 'lucide-react';
+import { X, Globe, Building2, TrendingUp, DollarSign, Activity, Users, ShieldAlert, Cpu, ScanEye } from 'lucide-react';
 import { marketApi } from '../api/client';
 
-export default function CompanyInfo({ ticker, isOpen, onClose }) {
+export default function CompanyInfo({ ticker, isOpen, onClose, preloadedData }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
-    if (isOpen && ticker) {
-      fetchInfo();
-    }
-  }, [isOpen, ticker]);
+    if (!isOpen || !ticker) return;
 
-  const fetchInfo = async () => {
-    setLoading(true);
-    try {
-      const res = await marketApi.getCompanyInfo(ticker);
-      setData(res.data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+    // 1. OPTIMISATION : Si on a déjà les données via le parent (Snapshot)
+    if (preloadedData) {
+       // On normalise les données pour qu'elles collent au format attendu par ton UI
+       setData(normalizeData(preloadedData));
+       setLoading(false);
+       return;
     }
+
+    // 2. FALLBACK : Sinon on fetch manuellement (Ancien comportement)
+    const fetchInfo = async () => {
+      setLoading(true);
+      try {
+        const res = await marketApi.getCompanyInfo(ticker);
+        setData(normalizeData(res.data));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInfo();
+  }, [isOpen, ticker, preloadedData]);
+
+  // --- ADAPTER PATTERN ---
+  // Cette fonction assure que peu importe si le backend renvoie le format "Flat" (Snapshot) 
+  // ou "Nested" (YFinance brut), l'UI ne plantera pas.
+  const normalizeData = (rawData) => {
+      if (!rawData) return null;
+      
+      // Si c'est déjà au format imbriqué (Legacy YFinance), on retourne tel quel
+      if (rawData.identity && rawData.valuation) return rawData;
+
+      // Sinon, on convertit le format "Snapshot" vers le format "Legacy" pour ton UI
+      return {
+          identity: {
+              longName: rawData.name || rawData.ticker,
+              city: rawData.city || 'N/A',
+              country: rawData.country || 'N/A',
+              sector: rawData.sector || 'N/A',
+              industry: rawData.industry || 'N/A',
+              exchange: rawData.exchange || 'N/A',
+              quoteType: 'EQUITY', // Default
+              website: rawData.website
+          },
+          profile: {
+              longBusinessSummary: rawData.summary || "Aucune description disponible.",
+              fullTimeEmployees: rawData.employees || 0
+          },
+          valuation: {
+              marketCap: rawData.marketCap || 0,
+              enterpriseValue: rawData.enterpriseValue || 0, // Sera 0 si pas dans snapshot, mais ne plantera pas
+              priceToBook: rawData.priceToBook || 0,
+              trailingPE: rawData.peRatio || 0,
+              forwardPE: rawData.forwardPE || 0,
+              trailingPegRatio: rawData.pegRatio || 0
+          },
+          financials: {
+              totalCash: rawData.financials?.cash || 0,
+              totalDebt: rawData.financials?.debt || 0,
+              revenueGrowth: rawData.financials?.revenueGrowth || 0,
+              returnOnEquity: rawData.financials?.roe || 0,
+              freeCashflow: rawData.financials?.freeCashflow || 0,
+              quickRatio: rawData.financials?.quickRatio || 0
+          },
+          performance: {
+              fiftyTwoWeekHigh: rawData.performance?.fiftyTwoWeekHigh || 0,
+              fiftyTwoWeekLow: rawData.performance?.fiftyTwoWeekLow || 0,
+              fiftyDayAverage: rawData.performance?.fiftyDayAverage || 0,
+              twoHundredDayAverage: rawData.performance?.twoHundredDayAverage || 0,
+              dividendYield: rawData.performance?.dividendYield || 0,
+              payoutRatio: rawData.performance?.payoutRatio || 0,
+              beta: rawData.beta || 0
+          }
+      };
   };
 
   if (!isOpen) return null;
@@ -70,14 +131,14 @@ export default function CompanyInfo({ ticker, isOpen, onClose }) {
         <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/50">
           <div className="flex items-center gap-3">
              <div className="p-2 bg-neon-blue/10 border border-neon-blue/30">
-                <Building2 size={20} className="text-neon-blue" />
+                <ScanEye size={20} className="text-neon-blue" />
              </div>
              <div>
                 <h2 className="text-xl font-bold text-white tracking-widest">{ticker}</h2>
                 <div className="text-[10px] text-slate-500 uppercase tracking-wider flex gap-2">
-                    <span>{data?.identity?.exchange}</span>
+                    <span>{data?.identity?.exchange || 'MARKET'}</span>
                     <span className="text-slate-700">//</span>
-                    <span>{data?.identity?.quoteType}</span>
+                    <span>{data?.identity?.quoteType || 'EQUITY'}</span>
                 </div>
              </div>
           </div>
