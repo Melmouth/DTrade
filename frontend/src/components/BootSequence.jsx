@@ -53,7 +53,7 @@ export default function BootSequence({ onComplete }) {
   // --- FIN ---
   useEffect(() => {
     if (phase === 'ascii') {
-      const timer = setTimeout(onComplete, 4000); // 4s pour laisser le chaos se faire
+      const timer = setTimeout(onComplete, 4000); 
       return () => clearTimeout(timer);
     }
   }, [phase, onComplete]);
@@ -65,11 +65,9 @@ export default function BootSequence({ onComplete }) {
         {line.split('').map((char, charIdx) => {
           if (char === ' ') return <span key={charIdx}> </span>;
           
-          // Calcul aléatoire pré-rendu
           const randomDelay = Math.random() * 2.5; 
           const randomColor = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
-          // On utilise 'em' pour que l'explosion soit proportionnelle à la taille du texte
-          const randomX = Math.random() * 20 - 10; // -10em à +10em
+          const randomX = Math.random() * 20 - 10; 
           const randomY = Math.random() * 20 - 10; 
           const randomRotate = Math.random() * 360;
 
@@ -117,26 +115,18 @@ export default function BootSequence({ onComplete }) {
       {phase === 'ascii' && (
         <div 
             className="relative z-20 font-bold text-cyan-500 w-full h-full flex items-center justify-center"
-            // C'EST ICI QUE LA MAGIE OPÈRE :
-            // 1.2vw : Calé sur la largeur (pour ~115 chars)
-            // 3.5vh : Calé sur la hauteur (pour ~17 lignes)
-            // Le navigateur prendra la plus petite valeur pour que ça ne déborde jamais.
             style={{ fontSize: 'min(1.2vw, 3.5vh)' }}
         >
-           <div>
-             {renderedAscii}
-           </div>
+           <div>{renderedAscii}</div>
         </div>
       )}
 
-      {/* Animation CSS */}
-      <style jsx global>{`
+      {/* Animation CSS Standard (Correction VITE) */}
+      <style>{`
         .chaos-char {
           color: #06b6d4; 
           opacity: 1;
-          /* Optimisation GPU */
           will-change: transform, opacity, filter, color;
-          
           animation: chaos-anim 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
           animation-delay: var(--delay);
         }
@@ -149,7 +139,6 @@ export default function BootSequence({ onComplete }) {
             filter: blur(0);
           }
           20% {
-            /* Le "Glitch" blanc/couleur avant de partir */
             color: var(--target-color);
             opacity: 1;
             transform: translate(0,0) scale(1.2);
@@ -159,7 +148,6 @@ export default function BootSequence({ onComplete }) {
           100% {
             color: white;
             opacity: 0;
-            /* Explosion relative à la taille de la police (em) */
             transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(0);
             filter: blur(0.2em);
           }

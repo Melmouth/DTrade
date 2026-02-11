@@ -14,9 +14,9 @@ import BootSequence from './components/BootSequence';
 import CompanyInfo from './components/CompanyInfo';
 import MarketStatus from './components/MarketStatus';
 
-// --- NEW CUSTOM HOOKS (Refactored) ---
+// --- NEW CUSTOM HOOKS ---
 import { useIndicatorManager } from './hooks/useIndicatorManager';
-import { useMarketStream } from './hooks/useMarketStream'; // Le nouveau hook unifié
+import { useMarketStream } from './hooks/useMarketStream';
 import { marketApi } from './api/client';
 
 const DEFAULT_SETTINGS = { wsInterval: 15, historyPeriod: '1mo' };
@@ -26,21 +26,17 @@ function App() {
   // --- 1. ÉTATS UI GLOBAUX ---
   const [booted, setBooted] = useState(false);
   
-  // FIX: Séparation du Ticker Actif (Données) et de l'Input de Recherche (UI)
   const [ticker, setTicker] = useState('MSFT'); 
   const [searchInput, setSearchInput] = useState('MSFT');
 
   const [showSettings, setShowSettings] = useState(false);
   const [showCompanyInfo, setShowCompanyInfo] = useState(false);
   
-  // États de l'éditeur d'indicateur
   const [editingIndicator, setEditingIndicator] = useState(null);
   const [previewSeries, setPreviewSeries] = useState(null);
 
-  // Sidebar Data
   const [sidebarData, setSidebarData] = useState([]);
 
-  // Settings App
   const [appSettings, setAppSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -48,8 +44,13 @@ function App() {
     } catch { return DEFAULT_SETTINGS; }
   });
 
-  // --- 2. INTEGRATION DU STREAM UNIFIÉ ---
-  // Remplace useMarketData ET useLiveFeed par un seul flux synchronisé
+  // --- 2. INTEGRATION DU STREAM (FIX BOOT SEQUENCE) ---
+  
+  // ASTUCE : Tant que le boot n'est pas fini, on passe 'null' au hook.
+  // Le hook est conçu pour ne rien faire si le ticker est null.
+  // Cela empêche le WebSocket de bombarder l'app pendant l'animation.
+  const streamTicker = booted ? ticker : null;
+
   const { 
     data: streamData, 
     loading, 
@@ -57,18 +58,22 @@ function App() {
     period: currentPeriod, 
     setPeriod: handlePeriodChange, 
     refresh: refetch 
-  } = useMarketStream(ticker, appSettings.wsInterval, appSettings.historyPeriod);
+  } = useMarketStream(streamTicker, appSettings.wsInterval, appSettings.historyPeriod);
 
-  // Extraction des données du Snapshot
-  // Note : On gère les fallbacks pour éviter les crashs si le stream est vide au début
-  const chartData = streamData?.chart?.data || [];
-  // Si daily_data absent du snapshot, on utilise chartData par défaut (fallback)
-  const dailyData = streamData?.chart?.daily_data || streamData?.chart?.data || [];
+  // --- STABILISATION DES DONNÉES (Fix Freeze) ---
+  const chartData = useMemo(() => {
+      return streamData?.chart?.data || [];
+  }, [streamData?.chart?.data]);
+
+  const dailyData = useMemo(() => {
+      return streamData?.chart?.daily_data || streamData?.chart?.data || [];
+  }, [streamData?.chart?.daily_data, streamData?.chart?.data]);
+  // ----------------------------------------------
+
   const chartMeta = streamData?.chart?.meta;
   const companyInfo = streamData?.info;
-  const liveData = streamData?.live; // { price, change_pct, is_open ... }
+  const liveData = streamData?.live;
   
-  // On considère connecté si pas d'erreur critique et qu'on a reçu au moins un paquet
   const isConnected = !error && streamData !== null;
 
   // --- 3. GESTION DES INDICATEURS ---
@@ -83,7 +88,6 @@ function App() {
 
   // --- 4. LOGIQUE & EFFETS DE BORD ---
 
-  // Chargement Sidebar
   useEffect(() => {
     loadSidebar();
   }, []);
@@ -95,41 +99,33 @@ function App() {
     } catch (err) { console.error("Sidebar load error", err); }
   };
 
-  // Handler Search FIXÉ : Ne met à jour le ticker que sur Submit
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchInput.trim()) {
         setTicker(searchInput.toUpperCase());
-        // Le hook useMarketStream détectera le changement de 'ticker' et fetchera tout seul
     }
   };
 
-  // Handler Sidebar FIXÉ : Met à jour ticker ET barre de recherche
   const handleSidebarSelect = (selectedTicker) => {
       setTicker(selectedTicker);
       setSearchInput(selectedTicker);
   };
 
-  // Handler Settings Save
   const handleSettingsSave = (newSettings) => {
     setAppSettings(newSettings);
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
-    // useMarketStream réagira automatiquement au changement de wsInterval ou historyPeriod
   };
 
-  // Handler Nuke
   const handleNuke = () => {
     setTicker('MSFT');
     setSearchInput('MSFT');
     nukeIndicators();
-    // Plus besoin de nukeViews ici, useMarketStream gère son propre état
     loadSidebar();
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
     setAppSettings(DEFAULT_SETTINGS);
     refetch();
   };
 
-  // Editeurs wrappers
   const updateIndicator = (updatedInd) => {
     hookUpdateIndicator(updatedInd);
     setEditingIndicator(null);
@@ -146,8 +142,6 @@ function App() {
     setPreviewSeries(null);
   };
 
-  // --- 5. LOGIQUE D'AFFICHAGE PRIX ---
-  // Priorité au Live Data du stream, sinon dernière clôture du graph
   const displayPrice = useMemo(() => {
     if (liveData?.price) return liveData.price;
     if (chartData && chartData.length > 0) return chartData[chartData.length - 1].close;
@@ -155,9 +149,12 @@ function App() {
   }, [liveData, chartData]);
 
   // --- 6. RENDER ---
+  
+  // --- RETABLISSEMENT DU BOOT SEQUENCE ---
   if (!booted) {
     return <BootSequence onComplete={() => setBooted(true)} />;
   }
+  // ---------------------------------------
 
   return (
     <div className="h-screen bg-black text-slate-300 font-mono flex flex-col overflow-hidden relative selection:bg-neon-blue selection:text-black">
@@ -198,7 +195,6 @@ function App() {
                 <div className="bg-slate-900 border border-slate-700 border-r-0 px-2 flex items-center text-slate-500 group-hover:text-neon-blue transition-colors">
                     <Terminal size={14} />
                 </div>
-                {/* INPUT FIXÉ : Utilise searchInput et onChange local */}
                 <input 
                 type="text" 
                 value={searchInput}
@@ -227,7 +223,7 @@ function App() {
           <Sidebar 
             data={sidebarData} 
             currentTicker={ticker}
-            onSelectTicker={handleSidebarSelect} // FIX: Utilise le handler qui update aussi l'input
+            onSelectTicker={handleSidebarSelect}
             onReload={loadSidebar}
           />
         </aside>
@@ -262,7 +258,6 @@ function App() {
                  </div>
                  
                  <div className="mb-2 md:mb-0 md:ml-auto md:mr-6">
-                    {/* On passe les données live au composant pour éviter qu'il refetch tout seul */}
                     <MarketStatus ticker={ticker} type="full" data={liveData} />
                  </div>
 
@@ -293,16 +288,10 @@ function App() {
                       <div className={`w-1.5 h-1.5 shadow-[0_0_5px_currentColor] ${!ind.visible && 'opacity-20'}`} style={{ backgroundColor: ind.color }}></div>
                       <span className="font-bold">{ind.name}</span>
                       
-                      {/* BOUTONS D'ACTION */}
                       <div className="flex gap-2 ml-2 pl-2 border-l border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                             onClick={() => handleEditClick(ind)} 
-                             className="hover:text-white hover:scale-110 transition text-neon-orange"
-                             title="Configurer"
-                          >
+                          <button onClick={() => handleEditClick(ind)} className="hover:text-white hover:scale-110 transition text-neon-orange" title="Configurer">
                              <Edit2 size={12} />
                           </button>
-                          
                           <button onClick={() => toggleIndicatorVisibility(ind.id)} className="hover:text-white hover:scale-110 transition">
                             {ind.visible ? <Eye size={12} /> : <EyeOff size={12} />}
                           </button>
@@ -327,7 +316,6 @@ function App() {
                   <div className="absolute -bottom-[1px] -left-[1px] w-6 h-6 border-b-2 border-l-2 border-neon-blue z-20"></div>
                   <div className="absolute -bottom-[1px] -right-[1px] w-6 h-6 border-b-2 border-r-2 border-neon-blue z-20"></div>
 
-                  {/* INSERTION : EDITOR GLASS WINDOW */}
                   {editingIndicator && (
                       <IndicatorEditor 
                           indicator={editingIndicator}

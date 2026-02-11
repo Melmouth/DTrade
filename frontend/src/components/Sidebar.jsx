@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Folder, Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, Hash, Server, Shield } from 'lucide-react';
 import { marketApi } from '../api/client';
-import MarketStatus from './MarketStatus';
+// import MarketStatus from './MarketStatus'; // <-- DÉSACTIVER L'IMPORT
 
 export default function Sidebar({ data, onSelectTicker, onReload, currentTicker }) {
   const [newPortfolioName, setNewPortfolioName] = useState('');
@@ -62,7 +62,7 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
         </button>
       </div>
 
-      {/* CREATION FORM STYLE COMMAND LINE */}
+      {/* CREATION FORM */}
       {isCreating && (
         <form onSubmit={handleCreate} className="p-2 border-b border-slate-800 bg-neon-blue/5 animate-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
@@ -144,18 +144,17 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
                             }
                           `}
                         >
-                          {/* Active Indicator Line */}
                           {isActive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-neon-blue"></div>}
 
                           <div className="flex items-center gap-2">
                              <Hash size={10} className="text-slate-700" />
                              <span className="font-mono font-bold tracking-widest">{item.ticker}</span>
                              
-                             {/* --- INTEGRATION MARKET STATUS COMPACT --- */}
-                             <div className="ml-2">
+                             {/* --- MODIFICATION CRITIQUE : RETRAIT DU COMPOSANT QUI SPAM L'API --- */}
+                             {/* <div className="ml-2">
                                 <MarketStatus ticker={item.ticker} type="compact" />
-                             </div>
-                             {/* ----------------------------------------- */}
+                             </div> */}
+                             {/* ------------------------------------------------------------------- */}
                           </div>
                           
                           <div className="flex items-center gap-3">
@@ -181,7 +180,6 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
         })}
       </div>
 
-      {/* FOOTER DECORATION */}
       <div className="p-3 border-t border-slate-800 text-[10px] text-slate-700 flex justify-between tracking-wider bg-black">
         <span>MEM: OK</span>
         <span>SYNC: AUTO</span>

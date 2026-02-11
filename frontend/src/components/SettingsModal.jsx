@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Trash2, AlertTriangle, Save } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Save, Server } from 'lucide-react';
 import { marketApi } from '../api/client';
 
 export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuke }) {
@@ -16,7 +16,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuk
   const handleNuke = async () => {
     try {
       await marketApi.nukeDatabase();
-      onNuke(); // Callback pour rafraîchir l'app
+      onNuke();
       setConfirmNuke(false);
     } catch (err) {
       console.error("Nuke failed", err);
@@ -38,24 +38,21 @@ export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuk
         {/* Body */}
         <div className="p-6 space-y-8">
           
-          {/* Section: WebSocket */}
-          <div className="space-y-3">
+          {/* Section: WebSocket Status (Anciennement Slider) */}
+          <div className="space-y-3 opacity-70 pointer-events-none grayscale">
             <div className="flex justify-between">
-              <label className="text-sm font-medium text-slate-300">Rafraîchissement Live</label>
-              <span className="text-sm font-mono text-emerald-400">{localSettings.wsInterval}s</span>
+              <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                 <Server size={14} /> Protocole Streaming
+              </label>
+              <span className="text-xs font-mono font-bold bg-neon-blue/10 text-neon-blue px-2 py-0.5 rounded border border-neon-blue/20">
+                  WEBSOCKET (AUTO)
+              </span>
             </div>
-            <input 
-              type="range" 
-              min="2" 
-              max="300" 
-              step="1"
-              value={localSettings.wsInterval}
-              onChange={(e) => setLocalSettings({...localSettings, wsInterval: parseInt(e.target.value)})}
-              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-            />
-            <div className="flex justify-between text-xs text-slate-500">
-              <span>Rapide (2s)</span>
-              <span>Lent (5min)</span>
+            <div className="w-full bg-slate-800 h-1.5 rounded-lg overflow-hidden">
+                <div className="h-full bg-neon-blue w-full animate-pulse shadow-[0_0_10px_#00f3ff]"></div>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Le mode 'Real-Time Push' est géré par le serveur. Latence minimale.
             </div>
           </div>
 
@@ -65,7 +62,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuk
             <select 
               value={localSettings.historyPeriod}
               onChange={(e) => setLocalSettings({...localSettings, historyPeriod: e.target.value})}
-              className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5"
+              className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
             >
               <option value="5d">5 Jours</option>
               <option value="1mo">1 Mois</option>

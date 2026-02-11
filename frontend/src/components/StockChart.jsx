@@ -103,6 +103,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
       rightPriceScale: { borderColor: '#1e293b' },
     });
 
+    // Création initiale de la série Volume (pour ne pas la recréer en boucle)
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: '', 
@@ -121,7 +122,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
 
     // --- GESTION DU CROSSHAIR (Survol) ---
     chart.subscribeCrosshairMove((param) => {
-      // 1. Mise à jour Légende
       if (!param.point || !param.time || param.point.x < 0 || param.point.y < 0) return;
       if (!mainSeriesRef.current || !volumeSeriesRef.current) return;
 
@@ -142,35 +142,35 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         });
       }
 
-      // 2. GESTION OUTIL DE MESURE (RULER) - Mouse Move
+      // Ruler Logic
       if (measurementRef.current.active && mainSeriesRef.current) {
         const currentPrice = mainSeriesRef.current.coordinateToPrice(param.point.y);
-        if (currentPrice === null) return;
+        if (currentPrice !== null) {
+            const startPrice = measurementRef.current.startPrice;
+            const diff = currentPrice - startPrice;
+            const pct = (diff / startPrice) * 100;
+            const isUp = diff >= 0;
+            const color = isUp ? '#00ff41' : '#ff003c'; 
 
-        const startPrice = measurementRef.current.startPrice;
-        const diff = currentPrice - startPrice;
-        const pct = (diff / startPrice) * 100;
-        const isUp = diff >= 0;
-        const color = isUp ? '#00ff41' : '#ff003c'; 
+            const lineOptions = {
+                price: currentPrice,
+                color: color,
+                lineWidth: 2,
+                lineStyle: 0, 
+                axisLabelVisible: true,
+                title: `${isUp ? '+' : ''}${diff.toFixed(2)} (${isUp ? '+' : ''}${pct.toFixed(2)}%)`,
+            };
 
-        const lineOptions = {
-          price: currentPrice,
-          color: color,
-          lineWidth: 2,
-          lineStyle: 0, 
-          axisLabelVisible: true,
-          title: `${isUp ? '+' : ''}${diff.toFixed(2)} (${isUp ? '+' : ''}${pct.toFixed(2)}%)`,
-        };
-
-        if (measurementRef.current.endLine) {
-           measurementRef.current.endLine.applyOptions(lineOptions);
-        } else {
-           measurementRef.current.endLine = mainSeriesRef.current.createPriceLine(lineOptions);
+            if (measurementRef.current.endLine) {
+                measurementRef.current.endLine.applyOptions(lineOptions);
+            } else {
+                measurementRef.current.endLine = mainSeriesRef.current.createPriceLine(lineOptions);
+            }
         }
       }
     });
 
-    // --- GESTION DES CLICS (Début / Fin de mesure) ---
+    // --- GESTION DES CLICS (Mesure) ---
     chart.subscribeClick((param) => {
         if (!param.point || !mainSeriesRef.current) return;
 
@@ -180,15 +180,6 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         }
 
         if (!measurementRef.current.active) {
-            if (measurementRef.current.startLine) {
-                try { mainSeriesRef.current.removePriceLine(measurementRef.current.startLine); } catch(e){}
-                measurementRef.current.startLine = null;
-            }
-            if (measurementRef.current.endLine) {
-                try { mainSeriesRef.current.removePriceLine(measurementRef.current.endLine); } catch(e){}
-                measurementRef.current.endLine = null;
-            }
-
             const price = mainSeriesRef.current.coordinateToPrice(param.point.y);
             if (price === null) return;
 
@@ -196,25 +187,16 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
             measurementRef.current.startPrice = price;
 
             measurementRef.current.startLine = mainSeriesRef.current.createPriceLine({
-                price: price,
-                color: '#ffffff',
-                lineStyle: 2, 
-                lineWidth: 1,
-                axisLabelVisible: true,
-                title: 'MEASURE START',
+                price: price, color: '#ffffff', lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: 'MEASURE START',
             });
         } else {
             measurementRef.current.active = false;
             measurementRef.current.removeTimer = setTimeout(() => {
                 if (mainSeriesRef.current) {
-                    if (measurementRef.current.startLine) {
-                        try { mainSeriesRef.current.removePriceLine(measurementRef.current.startLine); } catch(e){}
-                        measurementRef.current.startLine = null;
-                    }
-                    if (measurementRef.current.endLine) {
-                        try { mainSeriesRef.current.removePriceLine(measurementRef.current.endLine); } catch(e){}
-                        measurementRef.current.endLine = null;
-                    }
+                    if (measurementRef.current.startLine) try { mainSeriesRef.current.removePriceLine(measurementRef.current.startLine); } catch(e){}
+                    if (measurementRef.current.endLine) try { mainSeriesRef.current.removePriceLine(measurementRef.current.endLine); } catch(e){}
+                    measurementRef.current.startLine = null;
+                    measurementRef.current.endLine = null;
                 }
             }, 1500);
         }
@@ -245,91 +227,106 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
       if (data.length === 0) shouldZoomRef.current = true;
   }, [data.length]);
 
-  // --- 3. LOGIC : RENDERING DES DONNÉES HISTORIQUES ---
+  // --- 3. LOGIC : RENDERING DES DONNÉES (OPTIMISÉ) ---
   useEffect(() => {
-    if (!chartInstance.current || !data || data.length === 0) return;
+    // SECURITY CHECK
+    if (!chartInstance.current) return;
+    if (!Array.isArray(data) || data.length === 0) return;
+
     const chart = chartInstance.current;
-
-    // A. MAIN SERIES
-    if (mainSeriesRef.current) {
-      try { chart.removeSeries(mainSeriesRef.current); } catch (e) { /* ignore */ }
-      mainSeriesRef.current = null;
-      measurementRef.current = { active: false, startPrice: null, startLine: null, endLine: null, removeTimer: null };
-    }
-
     const mainData = [];
     const volumeData = [];
 
-    data.forEach((d) => {
-      const time = new Date(d.date).getTime() / 1000;
-      const isUp = d.close >= d.open;
-      volumeData.push({
-        time,
-        value: d.volume,
-        color: isUp ? 'rgba(0, 255, 65, 0.15)' : 'rgba(255, 0, 60, 0.15)',
-      });
-      if (chartType === 'candle') {
-        mainData.push({ time, open: d.open, high: d.high, low: d.low, close: d.close });
-      } else {
-        mainData.push({ time, value: d.close });
-      }
-    });
+    // DATA SANITIZATION
+    for(let i=0; i<data.length; i++) {
+        const d = data[i];
+        if (!d || !d.date) continue;
+        
+        // Conversion Date Safe
+        const time = new Date(d.date).getTime() / 1000;
+        if (isNaN(time)) continue;
 
-    let newSeries;
-    const commonOptions = {
-        priceLineVisible: visibility.priceLines,
-        lastValueVisible: true,
+        // Valeurs Safe (évite les NaN qui font crasher Lightweight Charts)
+        const open = d.open || 0;
+        const high = d.high || 0;
+        const low = d.low || 0;
+        const close = d.close || 0;
+        const volume = d.volume || 0;
+
+        const isUp = close >= open;
+        volumeData.push({
+            time,
+            value: volume,
+            color: isUp ? 'rgba(0, 255, 65, 0.15)' : 'rgba(255, 0, 60, 0.15)',
+        });
+
+        if (chartType === 'candle') {
+            mainData.push({ time, open, high, low, close });
+        } else {
+            mainData.push({ time, value: close });
+        }
     };
 
-    if (chartType === 'candle') {
-      newSeries = chart.addSeries(CandlestickSeries, {
-        ...commonOptions,
-        upColor: '#00ff41', borderUpColor: '#00ff41', wickUpColor: '#00ff41',
-        downColor: '#ff003c', borderDownColor: '#ff003c', wickDownColor: '#ff003c',
-      });
-    } else {
-      newSeries = chart.addSeries(LineSeries, {
-        ...commonOptions,
-        color: '#00f3ff', lineWidth: 2, 
-        crosshairMarkerVisible: true, crosshairMarkerBackgroundColor: '#00f3ff',
-      });
+    // A. GESTION SÉRIE PRINCIPALE
+    // On vérifie si on doit changer le type de graphique (Candle <-> Line)
+    if (mainSeriesRef.current && mainSeriesRef.current._chartType !== chartType) {
+        try { chart.removeSeries(mainSeriesRef.current); } catch(e){}
+        mainSeriesRef.current = null;
     }
 
-    newSeries.setData(mainData);
-    
+    // Création si inexistante
+    if (!mainSeriesRef.current) {
+        const commonOptions = {
+            priceLineVisible: visibility.priceLines,
+            lastValueVisible: true,
+        };
+        if (chartType === 'candle') {
+            mainSeriesRef.current = chart.addSeries(CandlestickSeries, {
+                ...commonOptions,
+                upColor: '#00ff41', borderUpColor: '#00ff41', wickUpColor: '#00ff41',
+                downColor: '#ff003c', borderDownColor: '#ff003c', wickDownColor: '#ff003c',
+            });
+        } else {
+            mainSeriesRef.current = chart.addSeries(LineSeries, {
+                ...commonOptions,
+                color: '#00f3ff', lineWidth: 2, 
+            });
+        }
+        mainSeriesRef.current._chartType = chartType; // Tag pour s'en souvenir
+    }
+
+    // MISE À JOUR DONNÉES (Rapide)
+    mainSeriesRef.current.setData(mainData);
     if (mainData.length > 0) {
         lastCandleRef.current = { ...mainData[mainData.length - 1] };
     }
 
+    // Mise à jour Volume
     if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
-    mainSeriesRef.current = newSeries;
 
-    // B. INDICATEURS (REFONTE COMPLÈTE VIA REGISTRE)
+    // B. GESTION INDICATEURS (Update Différentiel)
     let indicatorsToShow = indicators.filter(i => i.visible !== false);
     const activeIds = new Set(indicatorsToShow.map(i => i.id));
     if (previewSeries) activeIds.add(previewSeries.id);
 
-    // Cleanup Sécurisé
+    // 1. Suppression des vieux indicateurs
     indicatorSeriesRef.current.forEach((val, id) => {
       if (!activeIds.has(id)) {
         try {
             if (Array.isArray(val)) val.forEach(s => chart.removeSeries(s));
             else chart.removeSeries(val);
-        } catch (e) {
-            console.warn("Cleanup warning for series", id);
-        }
+        } catch (e) { console.warn(e) }
         indicatorSeriesRef.current.delete(id);
       }
     });
 
-    // Fonction Helper de Dessin
+    // Helper de dessin intelligent
     const drawIndicator = (id, type, color, calculatedData) => {
-         // Si changement de type (Band <-> Line), on nettoie l'ancien
+         // Si le type change (Band <-> Line), on détruit l'ancien
          if (indicatorSeriesRef.current.has(id)) {
             const old = indicatorSeriesRef.current.get(id);
             const wasBand = Array.isArray(old);
             const isBand = type === 'BAND';
-            
             if (wasBand !== isBand) {
                 try {
                     if (wasBand) old.forEach(s => chart.removeSeries(s));
@@ -347,9 +344,8 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
          };
 
          if (type === 'BAND') {
-             // Rendu BANDES (3 lignes : Upper, Lower, Basis)
              let seriesSet = indicatorSeriesRef.current.get(id);
-             
+             // Création
              if (!seriesSet) {
                  const sUpper = chart.addSeries(LineSeries, { color: color, lineWidth: 1, lineType: 2, priceLineVisible: false, lastValueVisible: false }); 
                  const sLower = chart.addSeries(LineSeries, { color: color, lineWidth: 1, lineType: 2, priceLineVisible: false, lastValueVisible: false }); 
@@ -357,10 +353,12 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
                  seriesSet = [sUpper, sLower, sBasis];
                  indicatorSeriesRef.current.set(id, seriesSet);
              } else {
+                 // Update Style
                  seriesSet.forEach(s => s.applyOptions({ color: color }));
                  seriesSet[2].applyOptions({ priceLineVisible: visibility.priceLines });
              }
 
+             // Update Data
              if (calculatedData && calculatedData.upper) {
                 seriesSet[0].setData(calculatedData.upper);
                 seriesSet[1].setData(calculatedData.lower);
@@ -368,8 +366,8 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
              }
 
          } else {
-             // Rendu LIGNE SIMPLE
              let series = indicatorSeriesRef.current.get(id);
+             // Création
              if (!series) {
                  series = chart.addSeries(LineSeries, { 
                    color: color, lineWidth: 2, 
@@ -378,41 +376,36 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
                  });
                  indicatorSeriesRef.current.set(id, series);
              } else {
+                 // Update Style
                  series.applyOptions({ color: color, priceLineVisible: visibility.priceLines });
              }
+             // Update Data
              if (calculatedData) series.setData(calculatedData);
          }
     };
 
-    // --- LE CŒUR DU CHANGEMENT : APPEL AU REGISTRE ---
+    // 2. Calcul et Update
     indicatorsToShow.forEach(ind => {
       if (previewSeries && ind.id === previewSeries.id) return;
       
-      // On prépare la config standard pour le registre
       const config = {
-          id: ind.type, // ex: 'SMA', 'BB'
-          params: ind.params || { period: ind.param || ind.period || 20 }, // Fallback compatibilité
+          id: ind.type,
+          params: ind.params || { period: ind.param || 20 },
           granularity: ind.granularity || 'days'
       };
 
-      // 1. Calcul via le registre (plus de if/else géant !)
       const dataPoints = calculateIndicator(config, data, dailyData);
-      
-      // 2. Détermination du style (Band vs Line)
-      const style = ind.style || 'LINE'; // Défini par le menu ou le registre
-
-      // 3. Dessin
+      const style = ind.style || 'LINE';
       if (dataPoints) drawIndicator(ind.id, style, ind.color, dataPoints);
     });
 
-    // Gestion de la série de prévisualisation (Editor)
+    // Preview Editor
     if (previewSeries) {
         const style = previewSeries.style || 'LINE';
-        // Note: previewSeries contient déjà .data calculé par l'éditeur
         drawIndicator(previewSeries.id, style, previewSeries.color, previewSeries.data);
     }
 
-    // Legend Update Initiale
+    // Legend Init
     if (mainData.length > 0) {
        const last = mainData[mainData.length - 1];
        const val = last.close !== undefined ? last.close : last.value;
@@ -422,6 +415,40 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
          volume: volumeData[volumeData.length-1]?.value || 0,
          color: isUp ? 'text-neon-green' : 'text-neon-red'
        });
+    }
+
+    // Zoom Handling
+    if (shouldZoomRef.current) {
+        const totalPoints = mainData.length;
+        let visiblePoints = totalPoints; 
+        if (meta?.period) {
+             switch (meta.period) {
+                case '1d': visiblePoints = 80; break;
+                case '5d': visiblePoints = 130; break;
+                case '1mo': visiblePoints = 22; break;
+                case '3mo': visiblePoints = 66; break;
+                case '6mo': visiblePoints = 132; break;
+                case '1y': visiblePoints = 252; break;
+                case '2y': visiblePoints = 504; break;
+                case '5y': visiblePoints = 1260; break;
+                case 'ytd':
+                    const currentYear = new Date().getFullYear();
+                    const startOfYear = new Date(currentYear, 0, 1).getTime() / 1000;
+                    const countYTD = data.filter(d => (new Date(d.date).getTime() / 1000) >= startOfYear).length;
+                    visiblePoints = countYTD > 0 ? countYTD : 252;
+                    break;
+                case 'max': default: visiblePoints = totalPoints;
+            }
+        }
+        if (totalPoints > visiblePoints && visiblePoints > 0) {
+            const fromIndex = totalPoints - visiblePoints;
+            const fromTime = new Date(data[fromIndex].date).getTime() / 1000;
+            const toTime = new Date(data[totalPoints - 1].date).getTime() / 1000;
+            chart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+        } else {
+            chart.timeScale().fitContent();
+        }
+        shouldZoomRef.current = false;
     }
 
   }, [data, dailyData, chartType, indicators, previewSeries, visibility.priceLines]);
@@ -456,48 +483,8 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         setLegend(prev => ({ ...prev, close: livePrice }));
     }
   }, [livePrice, chartType]);
-
-  // --- 5. LOGIC : ZOOM STRATEGY ---
-  useEffect(() => {
-    if (!chartInstance.current || !data || data.length === 0) return;
-    if (!shouldZoomRef.current) return;
-
-    const chart = chartInstance.current;
-    const totalPoints = data.length;
-    let visiblePoints = totalPoints; 
-
-    if (meta?.period) {
-        switch (meta.period) {
-            case '1d': visiblePoints = 80; break;
-            case '5d': visiblePoints = 130; break;
-            case '1mo': visiblePoints = 22; break;
-            case '3mo': visiblePoints = 66; break;
-            case '6mo': visiblePoints = 132; break;
-            case '1y': visiblePoints = 252; break;
-            case '2y': visiblePoints = 504; break;
-            case '5y': visiblePoints = 1260; break;
-            case 'ytd':
-                const currentYear = new Date().getFullYear();
-                const startOfYear = new Date(currentYear, 0, 1).getTime() / 1000;
-                const countYTD = data.filter(d => (new Date(d.date).getTime() / 1000) >= startOfYear).length;
-                visiblePoints = countYTD > 0 ? countYTD : 252;
-                break;
-            case 'max':
-            default: visiblePoints = totalPoints;
-        }
-    }
-
-    if (totalPoints > visiblePoints && visiblePoints > 0) {
-        const fromIndex = totalPoints - visiblePoints;
-        const fromTime = new Date(data[fromIndex].date).getTime() / 1000;
-        const toTime = new Date(data[totalPoints - 1].date).getTime() / 1000;
-        chart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
-    } else {
-        chart.timeScale().fitContent();
-    }
-    shouldZoomRef.current = false;
-  }, [data, meta]);
   
+  // Visibility changes for Volume
   useEffect(() => {
     if (volumeSeriesRef.current) {
       volumeSeriesRef.current.applyOptions({ visible: visibility.volume });
