@@ -1,7 +1,7 @@
 import { 
   calculateBollinger, calculateEnvelope, calculateKeltner, 
   calculateDonchian, calculateReg, calculateSTARC 
-} from '../../utils/math';
+} from '../../utils/calculations';
 
 export const BB = {
   id: 'BB',

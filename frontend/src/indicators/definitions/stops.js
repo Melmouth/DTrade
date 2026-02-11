@@ -1,4 +1,4 @@
-import { calculateSuperTrend, calculatePSAR, calculateChandelier } from '../../utils/math';
+import { calculateSuperTrend, calculatePSAR, calculateChandelier } from '../../utils/calculations';
 
 export const SUPERT = {
   id: 'SUPERT',
