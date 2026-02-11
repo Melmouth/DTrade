@@ -2,7 +2,7 @@ import {
   calculateSMA, calculateEMA, calculateWMA, calculateHMA, 
   calculateVWMA, calculateDEMA, calculateTEMA, calculateZLEMA, 
   calculateKAMA, calculateMcGinley 
-} from '../../utils/math';
+} from '../../utils/calculations';
 
 export const SMA = {
   id: 'SMA',
