@@ -1,8 +1,62 @@
 import { useState } from 'react';
 import { Folder, Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, Hash, Server, Shield } from 'lucide-react';
 import { marketApi } from '../api/client';
+import { usePriceStore } from '../hooks/usePriceStore';
 
-export default function Sidebar({ data, onSelectTicker, onReload, currentTicker, globalPrices }) {
+// --- SUB-COMPONENT: PORTFOLIO ITEM ---
+// Extrait pour éviter de re-render toute la sidebar quand un seul prix change
+const PortfolioItem = ({ item, isActive, onSelect, onDelete }) => {
+  const { prices } = usePriceStore();
+  
+  // Récupération du prix live depuis le store global
+  const liveInfo = prices[item.ticker];
+  
+  // Fallback sur la donnée statique si pas de live
+  const displayPct = liveInfo?.change_pct ?? item.change_pct ?? 0;
+  const isPositive = displayPct >= 0;
+
+  return (
+    <div 
+      onClick={() => onSelect(item.ticker)}
+      className={`
+        relative pl-8 pr-3 py-1.5 cursor-pointer flex items-center justify-between group
+        border-l border-slate-800 ml-4 transition-all
+        ${isActive 
+            ? 'bg-neon-blue/10 text-white' 
+            : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+        }
+      `}
+    >
+      {isActive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-neon-blue"></div>}
+
+      <div className="flex items-center gap-2">
+         <Hash size={10} className="text-slate-700" />
+         <span className="font-mono font-bold tracking-widest">{item.ticker}</span>
+      </div>
+      
+      <div className="flex items-center gap-3">
+        <span className={`flex items-center gap-1 text-[10px] font-bold ${isPositive ? 'text-neon-green' : 'text-neon-red'}`}>
+          {isPositive ? '+' : ''}{displayPct}%
+          {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+        </span>
+        
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(item.ticker);
+          }}
+          className="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-red-500 transition-opacity"
+          title="Retirer de la liste"
+        >
+          <Trash2 size={10} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- MAIN COMPONENT ---
+export default function Sidebar({ data, onSelectTicker, onReload, currentTicker }) {
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [expandedIds, setExpandedIds] = useState([]);
@@ -15,29 +69,37 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker,
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!newPortfolioName) return;
+    if (!newPortfolioName.trim()) return;
+    
     try {
       await marketApi.createPortfolio(newPortfolioName);
       setNewPortfolioName('');
       setIsCreating(false);
       onReload();
     } catch (err) {
-      alert("Erreur création dossier");
+      console.error("Erreur création dossier", err);
     }
   };
 
   const handleDeletePortfolio = async (id, e) => {
     e.stopPropagation();
-    if (confirm("CONFIRM DELETION :: Cette action est irréversible.")) {
-      await marketApi.deletePortfolio(id);
-      onReload();
+    if (window.confirm("CONFIRM DELETION :: Cette action est irréversible.")) {
+      try {
+        await marketApi.deletePortfolio(id);
+        onReload();
+      } catch (err) {
+        console.error("Erreur suppression dossier", err);
+      }
     }
   };
 
-  const handleDeleteItem = async (pid, ticker, e) => {
-    e.stopPropagation();
-    await marketApi.removeTickerFromPortfolio(pid, ticker);
-    onReload();
+  const handleDeleteItem = async (pid, ticker) => {
+    try {
+      await marketApi.removeTickerFromPortfolio(pid, ticker);
+      onReload();
+    } catch (err) {
+      console.error("Erreur suppression item", err);
+    }
   };
 
   return (
@@ -111,6 +173,7 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker,
                         <button 
                         onClick={(e) => handleDeletePortfolio(portfolio.id, e)}
                         className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-500 transition-opacity"
+                        title="Supprimer le dossier"
                         >
                         <Trash2 size={12} />
                         </button>
@@ -126,49 +189,15 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker,
                         // EMPTY_DIR
                       </div>
                     )}
-                    {portfolio.items.map((item) => {
-                      // --- LOGIQUE TEMPS RÉEL ---
-                      const liveInfo = globalPrices?.[item.ticker];
-                      const displayPct = liveInfo ? liveInfo.change_pct : item.change_pct;
-                      const isPositive = displayPct >= 0;
-                      const isActive = currentTicker === item.ticker;
-                      
-                      return (
-                        <div 
-                          key={item.ticker} 
-                          onClick={() => onSelectTicker(item.ticker)}
-                          className={`
-                            relative pl-8 pr-3 py-1.5 cursor-pointer flex items-center justify-between group
-                            border-l border-slate-800 ml-4 transition-all
-                            ${isActive 
-                                ? 'bg-neon-blue/10 text-white' 
-                                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
-                            }
-                          `}
-                        >
-                          {isActive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-neon-blue"></div>}
-
-                          <div className="flex items-center gap-2">
-                             <Hash size={10} className="text-slate-700" />
-                             <span className="font-mono font-bold tracking-widest">{item.ticker}</span>
-                          </div>
-                          
-                          <div className="flex items-center gap-3">
-                            <span className={`flex items-center gap-1 text-[10px] font-bold ${isPositive ? 'text-neon-green' : 'text-neon-red'}`}>
-                              {isPositive ? '+' : ''}{displayPct}%
-                              {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                            </span>
-                            
-                            <button 
-                              onClick={(e) => handleDeleteItem(portfolio.id, item.ticker, e)}
-                              className="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-red-500 transition-opacity"
-                            >
-                              <Trash2 size={10} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {portfolio.items.map((item) => (
+                      <PortfolioItem 
+                        key={item.ticker}
+                        item={item}
+                        isActive={currentTicker === item.ticker}
+                        onSelect={onSelectTicker}
+                        onDelete={(ticker) => handleDeleteItem(portfolio.id, ticker)}
+                      />
+                    ))}
                   </div>
                 )}
               </div>

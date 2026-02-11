@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Globe, Building2, TrendingUp, DollarSign, Activity, Users, ShieldAlert, Cpu, ScanEye } from 'lucide-react';
+import { X, Globe, DollarSign, TrendingUp, ShieldAlert, Cpu, ScanEye } from 'lucide-react';
 import { marketApi } from '../api/client';
 
 export default function CompanyInfo({ ticker, isOpen, onClose, preloadedData }) {
@@ -10,19 +10,20 @@ export default function CompanyInfo({ ticker, isOpen, onClose, preloadedData }) 
     if (!isOpen || !ticker) return;
 
     // 1. OPTIMISATION : Si on a déjà les données via le parent (Snapshot)
+    // Le backend renvoie maintenant le format CORRECT, plus besoin de normalization.
     if (preloadedData) {
-       // On normalise les données pour qu'elles collent au format attendu par ton UI
-       setData(normalizeData(preloadedData));
+       setData(preloadedData);
        setLoading(false);
        return;
     }
 
-    // 2. FALLBACK : Sinon on fetch manuellement (Ancien comportement)
+    // 2. FALLBACK : Sinon on fetch manuellement (Route API standardisée)
     const fetchInfo = async () => {
       setLoading(true);
       try {
         const res = await marketApi.getCompanyInfo(ticker);
-        setData(normalizeData(res.data));
+        // Ici aussi, l'API renvoie le format structuré directement
+        setData(res.data);
       } catch (e) {
         console.error(e);
       } finally {
@@ -32,59 +33,6 @@ export default function CompanyInfo({ ticker, isOpen, onClose, preloadedData }) 
 
     fetchInfo();
   }, [isOpen, ticker, preloadedData]);
-
-  // --- ADAPTER PATTERN ---
-  // Cette fonction assure que peu importe si le backend renvoie le format "Flat" (Snapshot) 
-  // ou "Nested" (YFinance brut), l'UI ne plantera pas.
-  const normalizeData = (rawData) => {
-      if (!rawData) return null;
-      
-      // Si c'est déjà au format imbriqué (Legacy YFinance), on retourne tel quel
-      if (rawData.identity && rawData.valuation) return rawData;
-
-      // Sinon, on convertit le format "Snapshot" vers le format "Legacy" pour ton UI
-      return {
-          identity: {
-              longName: rawData.name || rawData.ticker,
-              city: rawData.city || 'N/A',
-              country: rawData.country || 'N/A',
-              sector: rawData.sector || 'N/A',
-              industry: rawData.industry || 'N/A',
-              exchange: rawData.exchange || 'N/A',
-              quoteType: 'EQUITY', // Default
-              website: rawData.website
-          },
-          profile: {
-              longBusinessSummary: rawData.summary || "Aucune description disponible.",
-              fullTimeEmployees: rawData.employees || 0
-          },
-          valuation: {
-              marketCap: rawData.marketCap || 0,
-              enterpriseValue: rawData.enterpriseValue || 0, // Sera 0 si pas dans snapshot, mais ne plantera pas
-              priceToBook: rawData.priceToBook || 0,
-              trailingPE: rawData.peRatio || 0,
-              forwardPE: rawData.forwardPE || 0,
-              trailingPegRatio: rawData.pegRatio || 0
-          },
-          financials: {
-              totalCash: rawData.financials?.cash || 0,
-              totalDebt: rawData.financials?.debt || 0,
-              revenueGrowth: rawData.financials?.revenueGrowth || 0,
-              returnOnEquity: rawData.financials?.roe || 0,
-              freeCashflow: rawData.financials?.freeCashflow || 0,
-              quickRatio: rawData.financials?.quickRatio || 0
-          },
-          performance: {
-              fiftyTwoWeekHigh: rawData.performance?.fiftyTwoWeekHigh || 0,
-              fiftyTwoWeekLow: rawData.performance?.fiftyTwoWeekLow || 0,
-              fiftyDayAverage: rawData.performance?.fiftyDayAverage || 0,
-              twoHundredDayAverage: rawData.performance?.twoHundredDayAverage || 0,
-              dividendYield: rawData.performance?.dividendYield || 0,
-              payoutRatio: rawData.performance?.payoutRatio || 0,
-              beta: rawData.beta || 0
-          }
-      };
-  };
 
   if (!isOpen) return null;
 
@@ -171,9 +119,9 @@ export default function CompanyInfo({ ticker, isOpen, onClose, preloadedData }) 
                             </div>
                         </div>
                         <p className="text-xs text-slate-400 leading-relaxed border-l-2 border-slate-800 pl-3 italic">
-                            {data.profile.longBusinessSummary.length > 300 
+                            {data.profile.longBusinessSummary?.length > 300 
                                 ? data.profile.longBusinessSummary.substring(0, 300) + '...' 
-                                : data.profile.longBusinessSummary}
+                                : (data.profile.longBusinessSummary || "Aucune description disponible.")}
                         </p>
                     </div>
                     

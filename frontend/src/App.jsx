@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
-  Activity, Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye 
+  Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye 
 } from 'lucide-react';
 
 // --- COMPONENTS ---
@@ -14,11 +14,11 @@ import BootSequence from './components/BootSequence';
 import CompanyInfo from './components/CompanyInfo';
 import MarketStatus from './components/MarketStatus';
 
-// --- NEW CUSTOM HOOKS ---
+// --- HOOKS ---
 import { useIndicatorManager } from './hooks/useIndicatorManager';
 import { useMarketStream } from './hooks/useMarketStream';
 import { usePriceStore } from './hooks/usePriceStore';
-import { useGlobalStream } from './hooks/useGlobalStream'; // <-- IMPORT ÉTAPE D
+import { useGlobalStream } from './hooks/useGlobalStream';
 import { marketApi } from './api/client';
 
 const DEFAULT_SETTINGS = { wsInterval: 15, historyPeriod: '1mo' };
@@ -27,24 +27,25 @@ const STORAGE_KEYS = { SETTINGS: 'trading_settings' };
 function App() {
   // --- 1. ÉTATS UI GLOBAUX ---
   const [booted, setBooted] = useState(false);
-  
   const [ticker, setTicker] = useState('MSFT'); 
   const [searchInput, setSearchInput] = useState('MSFT');
-
   const [showSettings, setShowSettings] = useState(false);
   const [showCompanyInfo, setShowCompanyInfo] = useState(false);
   
+  // États Édition Indicateurs
   const [editingIndicator, setEditingIndicator] = useState(null);
   const [previewSeries, setPreviewSeries] = useState(null);
 
+  // Données Sidebar (Portfolios)
   const [sidebarData, setSidebarData] = useState([]);
 
-  // --- ÉTAPE A & D : STORE GLOBAL ET FLUX SIDEBAR ---
+  // --- 2. STORE GLOBAL & FLUX ---
   const { prices: globalPrices, updatePrice } = usePriceStore();
   
-  // On connecte le flux global qui alimente le store pour TOUS les tickers
+  // Connexion au flux global (WebSocket Sidebar)
   useGlobalStream(updatePrice); 
 
+  // Settings locaux
   const [appSettings, setAppSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -52,7 +53,7 @@ function App() {
     } catch { return DEFAULT_SETTINGS; }
   });
 
-  // --- 2. INTEGRATION DU STREAM ACTIF (Graphique) ---
+  // --- 3. FLUX MARKET (Graphique Actif) ---
   const streamTicker = booted ? ticker : null;
 
   const { 
@@ -64,29 +65,24 @@ function App() {
     refresh: refetch 
   } = useMarketStream(streamTicker, appSettings.wsInterval, appSettings.historyPeriod);
 
-  // --- ÉTAPE B : SYNCHRONISATION DU STORE (Ticker Actif) ---
+  // Synchronisation du ticker actif vers le store global
   useEffect(() => {
     if (streamData?.live && ticker) {
       updatePrice(ticker, streamData.live);
     }
   }, [streamData?.live, ticker, updatePrice]);
 
-  // --- STABILISATION DES DONNÉES ---
-  const chartData = useMemo(() => {
-      return streamData?.chart?.data || [];
-  }, [streamData?.chart?.data]);
-
-  const dailyData = useMemo(() => {
-      return streamData?.chart?.daily_data || streamData?.chart?.data || [];
-  }, [streamData?.chart?.daily_data, streamData?.chart?.data]);
-
+  // Extraction des données stabilisées pour le graphique
+  const chartData = useMemo(() => streamData?.chart?.data || [], [streamData?.chart?.data]);
+  const dailyData = useMemo(() => streamData?.chart?.daily_data || streamData?.chart?.data || [], [streamData?.chart?.daily_data, streamData?.chart?.data]);
+  
   const chartMeta = streamData?.chart?.meta;
   const companyInfo = streamData?.info;
   const liveData = streamData?.live;
   
   const isConnected = !error && streamData !== null;
 
-  // --- 3. GESTION DES INDICATEURS ---
+  // --- 4. GESTION DES INDICATEURS ---
   const { 
     indicators: currentIndicators, 
     addIndicator: handleAddIndicator, 
@@ -96,10 +92,8 @@ function App() {
     nukeIndicators 
   } = useIndicatorManager(ticker);
 
-  // --- 4. LOGIQUE & EFFETS DE BORD ---
-  useEffect(() => {
-    loadSidebar();
-  }, []);
+  // --- 5. LOGIQUE MÉTIER ---
+  useEffect(() => { loadSidebar(); }, []);
 
   const loadSidebar = async () => {
     try {
@@ -110,9 +104,7 @@ function App() {
 
   const handleSearch = (e) => {
     e.preventDefault();
-    if (searchInput.trim()) {
-        setTicker(searchInput.toUpperCase());
-    }
+    if (searchInput.trim()) setTicker(searchInput.toUpperCase());
   };
 
   const handleSidebarSelect = (selectedTicker) => {
@@ -135,14 +127,10 @@ function App() {
     refetch();
   };
 
+  // Gestion Éditeur Indicateur
   const updateIndicator = (updatedInd) => {
     hookUpdateIndicator(updatedInd);
     setEditingIndicator(null);
-    setPreviewSeries(null);
-  };
-
-  const handleEditClick = (ind) => {
-    setEditingIndicator(ind);
     setPreviewSeries(null);
   };
 
@@ -151,30 +139,23 @@ function App() {
     setPreviewSeries(null);
   };
 
-  // --- UTILISATION DU PRIX CENTRALISÉ (Store) ---
+  // --- 6. PRIX D'AFFICHAGE ---
   const displayPrice = useMemo(() => {
-    const globalPrice = globalPrices[ticker]?.price;
-    if (globalPrice) return globalPrice;
-    if (chartData && chartData.length > 0) return chartData[chartData.length - 1].close;
+    // Priorité 1: Store Global (WebSocket rapide)
+    if (globalPrices[ticker]?.price) return globalPrices[ticker].price;
+    // Priorité 2: Dernière bougie du chart
+    if (chartData.length > 0) return chartData[chartData.length - 1].close;
     return null;
   }, [globalPrices, ticker, chartData]);
 
-  // --- 6. RENDER ---
-  if (!booted) {
-    return <BootSequence onComplete={() => setBooted(true)} />;
-  }
+  // --- 7. RENDER ---
+  if (!booted) return <BootSequence onComplete={() => setBooted(true)} />;
 
   return (
     <div className="h-screen bg-black text-slate-300 font-mono flex flex-col overflow-hidden relative selection:bg-neon-blue selection:text-black">
       
-      {/* CRT GRIDLINES */}
-      <div className="fixed inset-0 z-[100] pointer-events-none" 
-           style={{ 
-             background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 243, 255, 0.03) 3px)',
-             backgroundSize: '100% 100%'
-           }}>
-      </div>
-      
+      {/* CRT EFFECT */}
+      <div className="fixed inset-0 z-[100] pointer-events-none bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,243,255,0.03)_3px)] bg-[size:100%_100%]"></div>
       <div className="fixed inset-0 z-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.5)_100%)]"></div>
 
       {/* HEADER */}
@@ -203,11 +184,11 @@ function App() {
                     <Terminal size={14} />
                 </div>
                 <input 
-                type="text" 
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
-                className="bg-black border border-slate-700 border-x-0 w-24 md:w-32 text-sm text-white focus:outline-none focus:bg-slate-900/50 placeholder:text-slate-700 uppercase tracking-wider"
-                placeholder="TICKER"
+                  type="text" 
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
+                  className="bg-black border border-slate-700 border-x-0 w-24 md:w-32 text-sm text-white focus:outline-none focus:bg-slate-900/50 placeholder:text-slate-700 uppercase tracking-wider"
+                  placeholder="TICKER"
                 />
                 <button type="submit" className="bg-slate-900 border border-slate-700 border-l-0 px-3 hover:bg-neon-blue hover:text-black transition-all duration-300 text-slate-400 font-bold">
                     <Search size={14} />
@@ -226,16 +207,18 @@ function App() {
       {/* MAIN LAYOUT */}
       <div className="flex-1 flex overflow-hidden relative z-0">
         
+        {/* SIDEBAR */}
         <aside className="w-64 shrink-0 hidden md:block border-r border-slate-800 bg-black/90 backdrop-blur-sm z-10">
           <Sidebar 
             data={sidebarData} 
             currentTicker={ticker}
-            globalPrices={globalPrices}
+            // globalPrices supprimé ici (Sidebar utilise le store directement)
             onSelectTicker={handleSidebarSelect}
             onReload={loadSidebar}
           />
         </aside>
 
+        {/* CONTENT */}
         <main className="flex-1 flex flex-col overflow-hidden relative z-0">
           <div className="flex-1 p-0 md:p-6 overflow-y-auto">
             <div className="max-w-[1600px] mx-auto space-y-6">
@@ -265,10 +248,12 @@ function App() {
                     </div>
                  </div>
                  
+                 {/* MARKET STATUS (Cleaned) */}
                  <div className="mb-2 md:mb-0 md:ml-auto md:mr-6">
-                    <MarketStatus ticker={ticker} type="full" data={liveData} />
+                    <MarketStatus data={liveData} />
                  </div>
 
+                 {/* PRICE DISPLAY */}
                  <div className="text-right">
                     <div className="text-[10px] text-slate-500 tracking-[0.3em] uppercase mb-1">Current Price Assessment</div>
                     <div className="flex items-baseline gap-3 justify-end">
@@ -288,7 +273,7 @@ function App() {
                  <AddToPortfolio ticker={ticker} portfolios={sidebarData} onUpdate={loadSidebar} />
               </div>
 
-              {/* LISTE INDICATEURS */}
+              {/* ACTIVE INDICATORS */}
               {currentIndicators.length > 0 && (
                 <div className="flex flex-wrap gap-3">
                   {currentIndicators.map(ind => (
@@ -297,7 +282,7 @@ function App() {
                       <span className="font-bold">{ind.name}</span>
                       
                       <div className="flex gap-2 ml-2 pl-2 border-l border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleEditClick(ind)} className="hover:text-white hover:scale-110 transition text-neon-orange" title="Configurer">
+                          <button onClick={() => setEditingIndicator(ind)} className="hover:text-white hover:scale-110 transition text-neon-orange" title="Configurer">
                              <Edit2 size={12} />
                           </button>
                           <button onClick={() => toggleIndicatorVisibility(ind.id)} className="hover:text-white hover:scale-110 transition">
@@ -310,6 +295,7 @@ function App() {
                 </div>
               )}
 
+              {/* ERROR DISPLAY */}
               {error && (
                   <div className="p-4 border border-red-900/80 bg-red-950/20 text-red-500 text-xs font-mono flex items-center gap-3 shadow-[inset_0_0_20px_rgba(255,0,0,0.1)]">
                       <span className="w-2 h-2 bg-red-500 animate-ping"></span>
@@ -348,6 +334,7 @@ function App() {
                   />
               </div>
 
+              {/* FOOTER */}
               <div className="flex justify-between text-[10px] text-slate-700 font-mono tracking-[0.2em] select-none pt-4 opacity-50">
                   <div>SYS.ID: D-402-X</div>
                   <div>MEMORY: 64TB // ENCRYPTED</div>

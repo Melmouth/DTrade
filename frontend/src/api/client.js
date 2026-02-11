@@ -9,7 +9,6 @@ export const marketApi = {
   getSnapshot: (ticker, period) => apiClient.get(`/api/snapshot/${ticker}?period=${period}`),
   
   // ROUTES SATELLITES (Rétablies pour Sidebar & Modales)
-  getMarketStatus: (ticker) => apiClient.get(`/api/status/${ticker}`),
   getCompanyInfo: (ticker) => apiClient.get(`/api/company/${ticker}`),
 
   // Portfolio & Admin
