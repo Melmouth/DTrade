@@ -65,27 +65,59 @@ class YFinanceProvider(MarketDataProvider):
     def fetch_bulk_1m_status(self, tickers: list):
         """
         Récupère les données 1m pour tous les tickers en une seule requête.
+        Version BLINDÉE contre les erreurs Yahoo.
         """
         if not tickers: return {}
+        
         try:
-            # On télécharge les 2 derniers jours en 1m pour avoir la bougie actuelle et la précédente
-            data = yf.download(tickers, period="2d", interval="1m", group_by='ticker', threads=True, progress=False)
+            # On télécharge les 2 derniers jours en 1m
+            # Astuce : On ajoute auto_adjust=True pour simplifier les données
+            data = yf.download(tickers, period="2d", interval="1m", group_by='ticker', threads=True, progress=False, auto_adjust=True)
+            
+            # Si Yahoo bloque ou renvoie vide
+            if data is None or data.empty:
+                print("[YF Bulk] Warning: Yahoo returned empty data (Rate Limit?)")
+                return {}
+
             results = {}
             
             for t in tickers:
-                df = data[t] if len(tickers) > 1 else data
-                df = df.dropna(subset=['Close']) # Nettoyage des lignes vides
-                
-                if not df.empty:
+                try:
+                    # Gestion du MultiIndex (si plusieurs tickers) ou DataFrame simple (si 1 ticker)
+                    df = data[t] if len(tickers) > 1 else data
+                    
+                    # Vérification supplémentaire que df est bien un DataFrame valide
+                    if df is None or df.empty:
+                        continue
+                        
+                    # Nettoyage des lignes où Close est NaN
+                    df = df.dropna(subset=['Close'])
+                    
+                    if df.empty:
+                        continue
+
                     last_price = df['Close'].iloc[-1]
+                    # Protection si une seule ligne dispo (pas de prev_close)
                     prev_close = df['Close'].iloc[-2] if len(df) > 1 else last_price
                     
+                    # Protection contre NaN (Not a Number) qui fait planter le JSON
+                    if pd.isna(last_price) or pd.isna(prev_close):
+                        continue
+
                     results[t] = {
-                        "price": round(last_price, 2),
-                        "change_pct": round(((last_price - prev_close) / prev_close) * 100, 2),
-                        "is_open": True # Simplifié ici, peut être couplé au calendrier
+                        "price": round(float(last_price), 2),
+                        "change_pct": round(float(((last_price - prev_close) / prev_close) * 100), 2),
+                        "is_open": True 
                     }
+                except KeyError:
+                    # Ticker introuvable dans le lot
+                    continue
+                except Exception as e:
+                    print(f"[YF Bulk] Error processing {t}: {e}")
+                    continue
+                    
             return results
+            
         except Exception as e:
-            print(f"[YF Bulk] Error: {e}")
+            print(f"[YF Bulk] Critical Error: {e}")
             return {}
