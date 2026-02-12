@@ -1,96 +1,99 @@
 from fastapi import APIRouter, HTTPException
-from ..database import get_db
-from ..models import PortfolioRequest, PortfolioItemRequest
-from ..services.market_data import provider
-import sqlite3
+from ..services import portfolio_service, market_data
+from ..models import OrderRequest, CashOperationRequest
 
-router = APIRouter(prefix="/api", tags=["portfolio"])
+router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
-@router.get("/sidebar")
-def get_sidebar():
+@router.get("/summary")
+def get_portfolio_summary():
     """
-    Récupère la liste des portfolios et les tickers associés.
-    Utilise un chargement 'Bulk' pour récupérer les variations de prix 
-    en une seule requête HTTP, au lieu de boucler sur chaque ticker.
+    Dashboard principal : Cash, Equity Totale, P&L Global.
     """
-    with get_db() as conn:
-        # 1. Récupération de la structure (Portfolios + Items)
-        portfolios = conn.execute("SELECT * FROM portfolios").fetchall()
-        all_items_rows = conn.execute("SELECT portfolio_id, ticker FROM portfolio_items").fetchall()
+    # 1. Récupérer le cash
+    account = portfolio_service.get_account()
+    cash = account['balance']
 
-    # 2. Extraction des tickers uniques (Dédoublonnage)
-    # Si 'AAPL' est dans 3 dossiers différents, on ne le demande qu'une fois à l'API.
-    unique_tickers = list(set([row['ticker'] for row in all_items_rows]))
+    # 2. Récupérer les positions
+    positions = portfolio_service.get_positions()
 
-    # 3. Appel Bulk (1 requête HTTP unique)
-    # Retourne un dict: {'AAPL': {'price': 150, 'change_pct': 1.5}, ...}
-    bulk_data = provider.fetch_bulk_1m_status(unique_tickers)
+    # 3. Calculer l'Equity (Valeur Latente)
+    equity_positions = 0.0
+    
+    # On récupère les prix live pour toutes les positions
+    # (Optimisation: on pourrait faire un bulk fetch ici aussi si beaucoup de positions)
+    for pos in positions:
+        live = market_data.provider.fetch_live_price(pos['ticker'])
+        current_price = live.get('price', 0.0)
+        equity_positions += pos['quantity'] * current_price
 
-    # 4. Reconstruction de la réponse hiérarchique
-    result = []
-    for p in portfolios:
-        # Filtrage en mémoire (très rapide) pour retrouver les items de ce portfolio
-        p_items = [row for row in all_items_rows if row['portfolio_id'] == p['id']]
+    total_equity = cash + equity_positions
+    
+    # 4. Estimation simplifiée du P&L (Equity actuelle - 100k départ)
+    # Dans une version avancée, on sommerait les dépôts nets.
+    start_capital = 100000.0 
+    total_pnl = total_equity - start_capital
+    pnl_pct = (total_pnl / start_capital) if start_capital > 0 else 0.0
+
+    return {
+        "cash_balance": round(cash, 2),
+        "equity_value": round(total_equity, 2),
+        "total_pnl": round(total_pnl, 2),
+        "pnl_pct": round(pnl_pct, 4),
+        "positions_count": len(positions)
+    }
+
+@router.get("/positions")
+def get_open_positions():
+    """
+    Liste détaillée des actifs détenus avec calcul P&L temps réel.
+    """
+    positions = portfolio_service.get_positions()
+    results = []
+
+    for pos in positions:
+        live = market_data.provider.fetch_live_price(pos['ticker'])
+        current_price = live.get('price', 0.0)
+        market_val = pos['quantity'] * current_price
         
-        tickers_data = []
-        for item in p_items:
-            ticker = item['ticker']
-            # On récupère la donnée du dictionnaire bulk
-            # Si le ticker a échoué ou n'existe pas, on met 0 par défaut
-            data = bulk_data.get(ticker, {})
-            pct = data.get('change_pct', 0)
-            
-            tickers_data.append({
-                "ticker": ticker, 
-                "change_pct": pct
-            })
-        
-        result.append({
-            "id": p['id'], 
-            "name": p['name'], 
-            "items": tickers_data
+        # P&L Latent = (Prix Actuel - Prix Moyen) * Qté
+        pnl_unrealized = (current_price - pos['avg_price']) * pos['quantity']
+        pnl_pct = (pnl_unrealized / (pos['avg_price'] * pos['quantity'])) if pos['avg_price'] > 0 else 0
+
+        results.append({
+            "ticker": pos['ticker'],
+            "quantity": pos['quantity'],
+            "avg_price": pos['avg_price'],
+            "current_price": current_price,
+            "market_value": round(market_val, 2),
+            "pnl_unrealized": round(pnl_unrealized, 2),
+            "pnl_pct": round(pnl_pct, 4)
         })
-            
-    return result
+    
+    return results
 
-@router.post("/portfolios")
-def create_portfolio(p: PortfolioRequest):
-    try:
-        with get_db() as conn:
-            cursor = conn.execute("INSERT INTO portfolios (name) VALUES (?)", (p.name,))
-            new_id = cursor.lastrowid
-            conn.commit()
-        return {"id": new_id, "name": p.name, "items": []}
-    except sqlite3.IntegrityError:
-        raise HTTPException(400, "Name exists")
+@router.get("/history")
+def get_transactions_history():
+    return portfolio_service.get_history()
 
-@router.delete("/portfolios/{pid}")
-def delete_portfolio(pid: int):
-    with get_db() as conn:
-        conn.execute("DELETE FROM portfolios WHERE id = ?", (pid,))
-        conn.commit()
-    return {"status": "deleted"}
+@router.post("/order")
+def place_order(order: OrderRequest):
+    """
+    Passe un ordre. Le backend vérifie le prix LIVE avant d'exécuter.
+    """
+    # 1. Récupération du prix autoritaire
+    live = market_data.provider.fetch_live_price(order.ticker)
+    price = live.get('price', 0.0)
+    
+    if price <= 0:
+        raise HTTPException(400, "Marché fermé ou donnée indisponible")
 
-@router.post("/portfolios/{pid}/items")
-def add_item(pid: int, item: PortfolioItemRequest):
-    with get_db() as conn:
-        conn.execute("INSERT OR IGNORE INTO portfolio_items (portfolio_id, ticker) VALUES (?, ?)", (pid, item.ticker))
-        conn.commit()
-    return {"status": "added"}
+    # 2. Exécution via le service (Transactionnel)
+    return portfolio_service.execute_order(order, price)
 
-@router.delete("/portfolios/{pid}/items/{ticker}")
-def remove_item(pid: int, ticker: str):
-    with get_db() as conn:
-        conn.execute("DELETE FROM portfolio_items WHERE portfolio_id = ? AND ticker = ?", (pid, ticker))
-        conn.commit()
-    return {"status": "removed"}
+@router.post("/cash")
+def manage_cash_flow(req: CashOperationRequest):
+    return portfolio_service.manage_cash(req)
 
-@router.delete("/database")
-def nuke_db():
-    with get_db() as conn:
-        conn.execute("DELETE FROM watchlist")
-        conn.execute("DELETE FROM portfolios")
-        conn.execute("DELETE FROM portfolio_items")
-        conn.execute("INSERT INTO portfolios (name) VALUES (?)", ("Favoris",))
-        conn.commit()
-    return {"status": "nuked"}
+@router.post("/nuke")
+def nuke_data():
+    return portfolio_service.nuke_portfolio()

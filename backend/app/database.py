@@ -9,6 +9,7 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        # --- EXISTING WATCHLIST TABLES ---
         conn.execute("CREATE TABLE IF NOT EXISTS watchlist (id INTEGER PRIMARY KEY, ticker TEXT UNIQUE)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS portfolios (
@@ -24,9 +25,59 @@ def init_db():
                 FOREIGN KEY(portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
             )
         """)
-        # Seed default
+
+        # --- NEW: DPMS FINANCIAL TABLES (EPIC 1) ---
+        
+        # 1. ACCOUNTS (Trésorerie)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                balance REAL NOT NULL DEFAULT 0.0,
+                currency TEXT DEFAULT 'USD',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 2. POSITIONS (Actifs détenus)
+        # avg_price = Prix de revient unitaire (Weighted Average)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS positions (
+                ticker TEXT PRIMARY KEY,
+                quantity REAL NOT NULL,
+                avg_price REAL NOT NULL, 
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 3. TRANSACTIONS (Journal d'audit)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT,
+                type TEXT NOT NULL, 
+                quantity REAL,
+                price REAL,
+                total_amount REAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # SEED: Default Watchlist Folder
         try:
             conn.execute("INSERT OR IGNORE INTO portfolios (name) VALUES (?)", ("Favoris",))
         except:
             pass
+
+        # SEED: Default Account with Cash (Paper Trading Start)
+        # On vérifie s'il y a un compte, sinon on en crée un avec 100k
+        cur = conn.execute("SELECT count(*) as cnt FROM accounts")
+        if cur.fetchone()['cnt'] == 0:
+            print("[DB] Initialisation du compte Paper Trading (100k$)")
+            conn.execute("INSERT INTO accounts (balance) VALUES (?)", (100000.0,))
+            # Initial Deposit Log
+            conn.execute("""
+                INSERT INTO transactions (type, total_amount, timestamp) 
+                VALUES ('DEPOSIT', 100000.0, CURRENT_TIMESTAMP)
+            """)
+
         conn.commit()
