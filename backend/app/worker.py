@@ -6,7 +6,7 @@ from .services import market_data
 from .database import get_db
 
 # Aligné sur l'intervalle 1m (avec une marge de sécurité)
-UPDATE_INTERVAL = 55
+UPDATE_INTERVAL = 4
 
 def log(msg):
     print(f"\033[92m[{datetime.now().strftime('%H:%M:%S')}] [WORKER]\033[0m {msg}")

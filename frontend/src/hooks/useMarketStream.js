@@ -6,7 +6,7 @@ const WS_BASE_URL = 'ws://localhost:8000/ws';
 
 // Intervalle de synchronisation HTTP de secours (Background Sync)
 // Sert à corriger les éventuelles dérives du WebSocket sur le long terme (ex: volumes)
-const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 Minutes
+const SYNC_INTERVAL_MS = 1 * 60 * 1000; // 1 Minute
 
 // Helper pour convertir l'intervalle texte (backend) en secondes
 // Permet de savoir quand clore une bougie (ex: '1m' = toutes les 60s)

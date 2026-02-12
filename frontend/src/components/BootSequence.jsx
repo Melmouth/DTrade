@@ -9,6 +9,7 @@ const LOGS = [
   "SYSTEM OVERRIDE REQUIRED."
 ];
 
+// J'ai gardé ton ASCII mais optimisé la structure pour React
 const ASCII_ART = [                                                                                                                              
 "DDDDDDDDDDDDD      EEEEEEEEEEEEEEEEEEEEEEIIIIIIIIIIMMMMMMMM              MMMMMMMM     OOOOOOOOO        SSSSSSSSSSSSSSS ",
 "D::::::::::::DDD   E::::::::::::::::::::EI::::::::IM:::::::M             M:::::::M   OO:::::::::OO    SS:::::::::::::::S",
@@ -28,59 +29,82 @@ const ASCII_ART = [
 "DDDDDDDDDDDDD      EEEEEEEEEEEEEEEEEEEEEEIIIIIIIIIIMMMMMMMM               MMMMMMMM     OOOOOOOOO      SSSSSSSSSSSSSSS   ",
 ];
 
-const NEON_COLORS = ['#06b6d4', '#d946ef', '#22c55e', '#eab308', '#f43f5e', '#ffffff'];
+const NEON_COLORS = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+  '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
+  '#f43f5e', '#fda4af', '#fdba74', '#fde047', '#bef264', '#86efac', '#6ee7b7', '#5eead4',
+  '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
+];
 
 export default function BootSequence({ onComplete }) {
+  // AJOUT phase 'cleanup' : Permet de vider le DOM avant de lancer l'App
   const [phase, setPhase] = useState('logs'); 
   const [logLines, setLogLines] = useState([]);
 
-  // --- LOGS ---
+  // --- 1. LOGS SEQUENCER ---
   useEffect(() => {
     if (phase !== 'logs') return;
+    
     let currentIndex = 0;
     const interval = setInterval(() => {
+      // Si on a tout affiché, on passe à la suite
       if (currentIndex >= LOGS.length) {
         clearInterval(interval);
-        setTimeout(() => setPhase('ascii'), 500);
+        setTimeout(() => setPhase('ascii'), 200);
         return;
       }
       setLogLines(prev => [...prev, LOGS[currentIndex]]);
       currentIndex++;
-    }, 200);
+    }, 150);
+    
     return () => clearInterval(interval);
   }, [phase]);
 
-  // --- FIN ---
+  // --- 2. ASCII TIMER ---
   useEffect(() => {
     if (phase === 'ascii') {
-      const timer = setTimeout(onComplete, 4000); 
+      // On réduit un peu le temps total pour la réactivité
+      const timer = setTimeout(() => setPhase('cleanup'), 3500); 
+      return () => clearTimeout(timer);
+    }
+  }, [phase]);
+
+  // --- 3. CLEANUP & EXIT (CRUCIAL POUR LA PERF) ---
+  useEffect(() => {
+    if (phase === 'cleanup') {
+      // On laisse 100ms au navigateur pour "respirer" et vider la mémoire vidéo
+      // avant de demander le rendu de l'application lourde.
+      const timer = setTimeout(onComplete, 100);
       return () => clearTimeout(timer);
     }
   }, [phase, onComplete]);
 
-  // --- RENDU ASCII OPTIMISÉ ---
+  // --- RENDU ASCII ---
   const renderedAscii = useMemo(() => {
+    if (phase !== 'ascii') return null; // Ne rien calculer si pas nécessaire
+
     return ASCII_ART.map((line, lineIdx) => (
       <div key={lineIdx} className="leading-[0.85] whitespace-pre text-center">
         {line.split('').map((char, charIdx) => {
-          if (char === ' ') return <span key={charIdx}> </span>;
+          if (char === ' ') return ' ';
           
-          const randomDelay = Math.random() * 2.5; 
-          const randomColor = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
-          const randomX = Math.random() * 20 - 10; 
-          const randomY = Math.random() * 20 - 10; 
-          const randomRotate = Math.random() * 360;
+          // Réduction des calculs aléatoires
+          const delay = (Math.random() * 2).toFixed(2); // Max 2s delay
+          const color = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
+          const x = (Math.random() * 10 - 5).toFixed(0); 
+          const y = (Math.random() * 10 - 5).toFixed(0); 
+          const r = (Math.random() * 90).toFixed(0);
 
           return (
             <span
               key={charIdx}
               className="inline-block chaos-char"
               style={{
-                '--delay': `${randomDelay}s`,
-                '--target-color': randomColor,
-                '--x': `${randomX}em`, 
-                '--y': `${randomY}em`,
-                '--r': `${randomRotate}deg`
+                '--d': `${delay}s`,
+                '--c': color,
+                '--x': `${x}em`, 
+                '--y': `${y}em`,
+                '--r': `${r}deg`
               }}
             >
               {char}
@@ -89,14 +113,19 @@ export default function BootSequence({ onComplete }) {
         })}
       </div>
     ));
-  }, []);
+  }, [phase]);
+
+  // Si on est en phase de nettoyage, on rend un écran noir vide.
+  // C'est ça qui "débloque" le thread pour charger l'App.
+  if (phase === 'cleanup') {
+    return <div className="fixed inset-0 bg-black z-[100]" />;
+  }
 
   return (
     <div className="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center font-mono overflow-hidden select-none cursor-wait">
       
-      {/* Background FX */}
-      <div className="absolute inset-0 pointer-events-none opacity-20 bg-[linear-gradient(rgba(6,182,212,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.05)_1px,transparent_1px)] bg-[size:30px_30px]"></div>
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,black_100%)]"></div>
+      {/* Background FX (Optimisé: opacity fixe) */}
+      <div className="absolute inset-0 pointer-events-none opacity-20 bg-[size:30px_30px] bg-grid-pattern"></div>
       
       {/* Phase 1: Logs */}
       {phase === 'logs' && (
@@ -111,24 +140,24 @@ export default function BootSequence({ onComplete }) {
         </div>
       )}
 
-      {/* Phase 2: ASCII Fullscreen */}
+      {/* Phase 2: ASCII */}
       {phase === 'ascii' && (
         <div 
             className="relative z-20 font-bold text-cyan-500 w-full h-full flex items-center justify-center"
-            style={{ fontSize: 'min(1.2vw, 3.5vh)' }}
+            style={{ fontSize: 'min(1.0vw, 3.0vh)' }} // Légèrement réduit pour éviter l'overflow
         >
-           <div>{renderedAscii}</div>
+           {/* will-change appliqué UNIQUEMENT au conteneur parent pour éviter 2000 couches composites */}
+           <div className="will-change-transform">{renderedAscii}</div>
         </div>
       )}
 
-      {/* Animation CSS Standard (Correction VITE) */}
       <style>{`
+        /* Suppression du filter: blur et text-shadow qui tuent les perfs */
         .chaos-char {
           color: #06b6d4; 
           opacity: 1;
-          will-change: transform, opacity, filter, color;
-          animation: chaos-anim 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-          animation-delay: var(--delay);
+          animation: chaos-anim 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+          animation-delay: var(--d);
         }
 
         @keyframes chaos-anim {
@@ -136,21 +165,23 @@ export default function BootSequence({ onComplete }) {
             color: #06b6d4;
             opacity: 1;
             transform: translate(0,0) scale(1);
-            filter: blur(0);
           }
-          20% {
-            color: var(--target-color);
+          30% {
+            color: var(--c);
             opacity: 1;
-            transform: translate(0,0) scale(1.2);
-            filter: blur(0);
-            text-shadow: 0 0 0.5em var(--target-color);
+            transform: translate(0,0) scale(1.5);
           }
           100% {
             color: white;
             opacity: 0;
+            /* Rotation réduite pour moins de calculs de pixels */
             transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(0);
-            filter: blur(0.2em);
           }
+        }
+        
+        .bg-grid-pattern {
+            background-image: linear-gradient(rgba(6,182,212,0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(6,182,212,0.05) 1px, transparent 1px);
         }
       `}</style>
     </div>
