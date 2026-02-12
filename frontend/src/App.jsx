@@ -7,7 +7,7 @@ import {
 import SettingsModal from './components/SettingsModal';
 import Sidebar from './components/Sidebar';
 import StockChart from './components/StockChart';
-import AddToPortfolio from './components/AddToPortfolio';
+import AddToWatchlist from './components/AddToWatchlist';
 import IndicatorMenu from './components/IndicatorMenu';
 import IndicatorEditor from './components/IndicatorEditor';
 import BootSequence from './components/BootSequence';
@@ -270,7 +270,7 @@ function App() {
               <div className="flex items-center justify-between bg-slate-900/40 border border-slate-800 p-3 backdrop-blur-sm relative z-20">
                  <div className="absolute top-0 left-0 w-1 h-full bg-neon-blue"></div>
                  <IndicatorMenu ticker={ticker} onAddIndicator={handleAddIndicator} />
-                 <AddToPortfolio ticker={ticker} portfolios={sidebarData} onUpdate={loadSidebar} />
+                 <AddToWatchlist ticker={ticker} watchlists={sidebarData} onUpdate={loadSidebar} />
               </div>
 
               {/* ACTIVE INDICATORS */}

@@ -5,7 +5,8 @@ import time
 from datetime import datetime
 
 from app.database import init_db
-from app.routes import market, indicators, portfolio
+# Import des 4 modules de routes : Market, Indicators, Watchlist (Favoris), Portfolio (Trading)
+from app.routes import market, indicators, watchlist, portfolio
 from app.websockets import manager
 from app.worker import market_data_worker
 
@@ -27,19 +28,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Middleware pour logger TOUTES les requêtes HTTP (pour voir le spam Sidebar)
+# Middleware pour logger TOUTES les requêtes HTTP
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
     response = await call_next(request)
     process_time = (time.time() - start_time) * 1000
-    log("HTTP", f"{request.method} {request.url.path} - {response.status_code} ({process_time:.2f}ms)")
+    if request.method != "OPTIONS":
+        log("HTTP", f"{request.method} {request.url.path} - {response.status_code} ({process_time:.2f}ms)")
     return response
 
 # Include Routers
 app.include_router(market.router)
 app.include_router(indicators.router)
-app.include_router(portfolio.router)
+app.include_router(watchlist.router)  # Gère /api/watchlists (Sidebar)
+app.include_router(portfolio.router)  # Gère /api/portfolio (Trading, Cash, Ordres)
 
 @app.websocket("/ws/global")
 async def global_websocket_endpoint(websocket: WebSocket):

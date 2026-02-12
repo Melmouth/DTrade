@@ -8,15 +8,27 @@ export const marketApi = {
   // THE ONE AND ONLY (Main App)
   getSnapshot: (ticker, period) => apiClient.get(`/api/snapshot/${ticker}?period=${period}`),
   
-  // ROUTES SATELLITES (Rétablies pour Sidebar & Modales)
+  // ROUTES SATELLITES
   getCompanyInfo: (ticker) => apiClient.get(`/api/company/${ticker}`),
 
-  // Portfolio & Admin
-  getSidebarData: () => apiClient.get('/api/sidebar'),
-  createPortfolio: (name) => apiClient.post('/api/portfolios', { name }),
-  deletePortfolio: (id) => apiClient.delete(`/api/portfolios/${id}`),
-  addTickerToPortfolio: (pid, ticker) => apiClient.post(`/api/portfolios/${pid}/items`, { ticker }),
-  removeTickerFromPortfolio: (pid, ticker) => apiClient.delete(`/api/portfolios/${pid}/items/${ticker}`),
+  // --- WATCHLISTS (Sidebar / Favoris) ---
+  // On ne parle plus de portfolio ici, ce sont des listes de surveillance
+  getSidebarData: () => apiClient.get('/api/watchlists/sidebar'),
+  createWatchlist: (name) => apiClient.post('/api/watchlists', { name }),
+  deleteWatchlist: (id) => apiClient.delete(`/api/watchlists/${id}`),
+  addTickerToWatchlist: (pid, ticker) => apiClient.post(`/api/watchlists/${pid}/items`, { ticker }),
+  removeTickerFromWatchlist: (pid, ticker) => apiClient.delete(`/api/watchlists/${pid}/items/${ticker}`),
+
+  // --- REAL TRADING PORTFOLIO (Epic 1 & 2) ---
+  // Ces routes gèrent le vrai argent et les positions
+  getPortfolioSummary: () => apiClient.get('/api/portfolio/summary'),
+  getOpenPositions: () => apiClient.get('/api/portfolio/positions'),
+  getHistory: () => apiClient.get('/api/portfolio/history'),
+  placeOrder: (order) => apiClient.post('/api/portfolio/order', order), // { ticker, action, quantity }
+  manageCash: (req) => apiClient.post('/api/portfolio/cash', req), // { amount, type }
+  nukePortfolio: () => apiClient.post('/api/portfolio/nuke'), // Reset Compte Trading
+
+  // Admin / Debug
   nukeDatabase: () => apiClient.delete('/api/database'),
 
   // Smart Indicators

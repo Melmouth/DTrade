@@ -57,7 +57,8 @@ const PortfolioItem = ({ item, isActive, onSelect, onDelete }) => {
 
 // --- MAIN COMPONENT ---
 export default function Sidebar({ data, onSelectTicker, onReload, currentTicker }) {
-  const [newPortfolioName, setNewPortfolioName] = useState('');
+  // Renommage sémantique : on manipule des Watchlists maintenant
+  const [newWatchlistName, setNewWatchlistName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [expandedIds, setExpandedIds] = useState([]);
 
@@ -69,11 +70,12 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!newPortfolioName.trim()) return;
+    if (!newWatchlistName.trim()) return;
     
     try {
-      await marketApi.createPortfolio(newPortfolioName);
-      setNewPortfolioName('');
+      // UPDATE API CALL
+      await marketApi.createWatchlist(newWatchlistName);
+      setNewWatchlistName('');
       setIsCreating(false);
       onReload();
     } catch (err) {
@@ -81,11 +83,12 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
     }
   };
 
-  const handleDeletePortfolio = async (id, e) => {
+  const handleDeleteWatchlist = async (id, e) => {
     e.stopPropagation();
     if (window.confirm("CONFIRM DELETION :: Cette action est irréversible.")) {
       try {
-        await marketApi.deletePortfolio(id);
+        // UPDATE API CALL
+        await marketApi.deleteWatchlist(id);
         onReload();
       } catch (err) {
         console.error("Erreur suppression dossier", err);
@@ -95,7 +98,8 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
 
   const handleDeleteItem = async (pid, ticker) => {
     try {
-      await marketApi.removeTickerFromPortfolio(pid, ticker);
+      // UPDATE API CALL
+      await marketApi.removeTickerFromWatchlist(pid, ticker);
       onReload();
     } catch (err) {
       console.error("Erreur suppression item", err);
@@ -133,9 +137,9 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
               type="text"
               placeholder="MKDIR NAME..."
               className="w-full bg-transparent border-b border-neon-blue/50 px-1 py-1 text-white placeholder:text-slate-600 focus:outline-none uppercase tracking-wider"
-              value={newPortfolioName}
-              onChange={(e) => setNewPortfolioName(e.target.value)}
-              onBlur={() => !newPortfolioName && setIsCreating(false)}
+              value={newWatchlistName}
+              onChange={(e) => setNewWatchlistName(e.target.value)}
+              onBlur={() => !newWatchlistName && setIsCreating(false)}
             />
           </div>
         </form>
@@ -143,15 +147,15 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
 
       {/* LISTE */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-        {data.map((portfolio) => {
-            const isOpen = expandedIds.includes(portfolio.id);
-            const isSystem = portfolio.name === "Favoris";
+        {data.map((watchlist) => {
+            const isOpen = expandedIds.includes(watchlist.id);
+            const isSystem = watchlist.name === "Favoris";
             
             return (
-              <div key={portfolio.id} className="border-b border-slate-900">
+              <div key={watchlist.id} className="border-b border-slate-900">
                 {/* NODE HEADER */}
                 <div 
-                  onClick={() => toggleFolder(portfolio.id)}
+                  onClick={() => toggleFolder(watchlist.id)}
                   className={`
                     group flex items-center justify-between px-3 py-2 cursor-pointer transition-all border-l-2
                     ${isOpen ? 'bg-slate-900/40 border-neon-blue text-slate-200' : 'border-transparent hover:bg-slate-900/20 hover:border-slate-700'}
@@ -162,16 +166,16 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
                         {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                     </span>
                     {isSystem ? <Shield size={12} className="text-neon-purple" /> : <Folder size={12} className={isOpen ? "text-neon-blue" : "text-slate-600"} />}
-                    <span className="font-bold tracking-wider uppercase truncate">{portfolio.name}</span>
+                    <span className="font-bold tracking-wider uppercase truncate">{watchlist.name}</span>
                   </div>
                   
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] text-slate-700 bg-slate-900 px-1 border border-slate-800 font-mono">
-                        {portfolio.items.length.toString().padStart(2, '0')}
+                        {watchlist.items.length.toString().padStart(2, '0')}
                     </span>
                     {!isSystem && (
                         <button 
-                        onClick={(e) => handleDeletePortfolio(portfolio.id, e)}
+                        onClick={(e) => handleDeleteWatchlist(watchlist.id, e)}
                         className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-500 transition-opacity"
                         title="Supprimer le dossier"
                         >
@@ -184,18 +188,18 @@ export default function Sidebar({ data, onSelectTicker, onReload, currentTicker 
                 {/* ITEMS TREE */}
                 {isOpen && (
                   <div className="bg-black/50 pb-2">
-                    {portfolio.items.length === 0 && (
+                    {watchlist.items.length === 0 && (
                       <div className="pl-9 py-1 text-[10px] text-slate-700 italic border-l border-slate-800 ml-4">
                         // EMPTY_DIR
                       </div>
                     )}
-                    {portfolio.items.map((item) => (
+                    {watchlist.items.map((item) => (
                       <PortfolioItem 
                         key={item.ticker}
                         item={item}
                         isActive={currentTicker === item.ticker}
                         onSelect={onSelectTicker}
-                        onDelete={(ticker) => handleDeleteItem(portfolio.id, ticker)}
+                        onDelete={(ticker) => handleDeleteItem(watchlist.id, ticker)}
                       />
                     ))}
                   </div>
