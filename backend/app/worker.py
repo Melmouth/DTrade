@@ -19,18 +19,32 @@ async def market_data_worker():
             start_time = time.time()
             
             # 1. RÉCUPÉRATION DE TOUS LES TICKERS D'INTÉRÊT
-            # On récupère ce qui est affiché à l'écran (Active) + ce qui est en favoris (Sidebar)
+            # On récupère :
+            # A. Ce qui est affiché sur un graphique actif (Clients WebSocket)
+            # B. Ce qui est dans les favoris (Sidebar)
+            # C. Ce qui est détenu en portefeuille (Positions -> Pour le calcul Equity)
+            
             active_tickers = list(manager.active_tickers)
             db_tickers = []
+            
             try:
                 with get_db() as conn:
-                    rows = conn.execute("SELECT DISTINCT ticker FROM portfolio_items").fetchall()
-                    db_tickers = [r['ticker'] for r in rows]
+                    # Fetch Watchlist
+                    rows_watchlist = conn.execute("SELECT DISTINCT ticker FROM portfolio_items").fetchall()
+                    
+                    # Fetch Positions (NOUVEAU : Epic 2.2)
+                    rows_positions = conn.execute("SELECT DISTINCT ticker FROM positions").fetchall()
+                    
+                    # Merge des deux sources DB
+                    db_tickers = [r['ticker'] for r in rows_watchlist] + [r['ticker'] for r in rows_positions]
+                    
             except Exception as e:
                 log(f"Erreur DB: {e}")
 
-            # Union des sets pour éviter les doublons
+            # Union des sets pour éviter les doublons et nettoyer
             all_tickers = list(set(active_tickers + db_tickers))
+            # Filtrage des None ou vide au cas où
+            all_tickers = [t for t in all_tickers if t]
             
             if not all_tickers:
                 await asyncio.sleep(1)
@@ -60,14 +74,14 @@ async def market_data_worker():
                     "timestamp": time.time()
                 }
 
-                # Broadcast aux abonnés de ce ticker spécifique (ex: Graphique ouvert)
+                # A. Broadcast aux abonnés de ce ticker spécifique (Graphique ouvert)
                 await manager.broadcast(ticker, payload)
 
-                # --- NOUVEAUTÉ : DIFFUSION AU CANAL GLOBAL (Pour la Sidebar vivante) ---
-                # On envoie la donnée au gestionnaire global qui la redistribuera à tous les clients
+                # B. DIFFUSION AU CANAL GLOBAL
+                # Sert à mettre à jour la Sidebar ET le calcul d'Equity du Portfolio en temps réel
                 await manager.broadcast_global(payload)
 
-            # 4. CALCUL DU SOMMEIL (Sync sur 1 minute)
+            # 4. CALCUL DU SOMMEIL (Sync sur cycle)
             elapsed = time.time() - start_time
             sleep_time = max(0.1, UPDATE_INTERVAL - elapsed)
             await asyncio.sleep(sleep_time)
