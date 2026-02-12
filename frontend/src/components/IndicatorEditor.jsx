@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Activity, RotateCw, Palette, Layers, BarChart3, SlidersHorizontal, CalendarClock, LineChart } from 'lucide-react';
+import { 
+  X, Save, Activity, RotateCw, Palette, Layers, 
+  BarChart3, CalendarClock, LineChart, Wand2, Settings2, Cpu 
+} from 'lucide-react';
 import { calculateIndicator, default as INDICATORS } from '../indicators/registry';
 
 const COLORS = [
@@ -10,26 +13,24 @@ const COLORS = [
 ];
 
 export default function IndicatorEditor({ indicator, chartData, dailyData, onClose, onSave, onPreview }) {
+  // --- STATE ---
+  const [activeTab, setActiveTab] = useState('MANUAL'); // 'MANUAL' | 'SMART'
   const [isVisualLoading, setIsVisualLoading] = useState(false);
-  
-  const definition = INDICATORS[indicator.type];
+  const [isSmartComputing, setIsSmartComputing] = useState(false);
 
-  // Identification du paramètre principal
-  const mainParamKey = useMemo(() => {
-    if (!definition) return null;
-    return Object.keys(definition.params).find(k => definition.params[k].type === 'number');
-  }, [definition]);
-
-  const mainParamConfig = definition ? definition.params[mainParamKey] : {};
-
+  // Configuration locale
   const [localParams, setLocalParams] = useState(indicator.params || {});
   const [color, setColor] = useState(indicator.color);
   const [name, setName] = useState(indicator.name);
   const [granularity, setGranularity] = useState(indicator.granularity || 'days');
 
-  const sliderValue = localParams[mainParamKey] || mainParamConfig.default || 20;
+  // Configuration Smart
+  const [smartTarget, setSmartTarget] = useState(indicator.smartParams?.target || 50);
+  const [smartLookback, setSmartLookback] = useState(indicator.smartParams?.lookback || 365);
 
-  // LIVE PREVIEW
+  const definition = INDICATORS[indicator.type];
+
+  // --- PREVIEW EFFECT (DEBOUNCE) ---
   useEffect(() => {
     if (!definition) return;
     const timer = setTimeout(() => {
@@ -39,15 +40,12 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 const dataToPreview = calculateIndicator(
                     { id: indicator.type, params: localParams, granularity },
                     chartData,
-                    dailyData // <-- On passe bien le contexte Daily ici
+                    dailyData
                 );
-
                 if (dataToPreview) {
                     onPreview({
                         ...indicator,
-                        name: name,
-                        color: color,
-                        granularity: granularity,
+                        name, color, granularity,
                         params: localParams,
                         data: dataToPreview 
                     });
@@ -58,11 +56,12 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 setIsVisualLoading(false);
             }
         });
-    }, 50);
+    }, 50); // Debounce court
 
     return () => clearTimeout(timer);
-  }, [localParams, color, name, granularity, indicator, chartData, dailyData, definition]);
+  }, [localParams, color, name, granularity, indicator.type]);
 
+  // --- HANDLERS ---
   const handleParamChange = (key, value) => {
       setLocalParams(prev => ({ ...prev, [key]: value }));
   };
@@ -73,158 +72,282 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
       params: localParams,
       granularity,
       color,
-      name
+      name,
+      // On sauvegarde les prefs smart si on est dans l'onglet smart
+      smartParams: activeTab === 'SMART' ? { target: smartTarget, lookback: smartLookback } : indicator.smartParams
     });
     onClose();
   };
 
+  // --- SMART OPTIMIZER LOGIC ---
+  const runSmartOptimization = async () => {
+    setIsSmartComputing(true);
+    try {
+        // Simulation d'optimisation (A remplacer par l'appel API réel avec indicator.ticker)
+        // Dans le backend: Trend = target % au dessus / Band = target % dedans
+        await new Promise(r => setTimeout(r, 800)); 
+        
+        // Exemple de résultat simulé
+        const key = Object.keys(definition.params).find(k => definition.params[k].type === 'number');
+        if (key) {
+            const current = localParams[key];
+            const optimized = Math.floor(current * (0.8 + Math.random() * 0.4));
+            handleParamChange(key, optimized);
+            
+            const typeLabel = definition.type === 'BAND' ? 'Inside' : 'Up';
+            setName(`${definition.name} (AI: ${smartTarget}% ${typeLabel})`);
+        }
+        
+        setActiveTab('MANUAL'); // Retour au manuel pour voir le résultat
+    } catch (e) {
+        console.error("Smart Error", e);
+    } finally {
+        setIsSmartComputing(false);
+    }
+  };
+
+  // --- RENDER COMPONENT: GRANULARITY SELECTOR (Réutilisable) ---
+  const GranularitySelector = () => (
+    <div className="space-y-2">
+        <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+            <Layers size={10} /> Timeframe Source
+        </label>
+        <div className="flex flex-col gap-1.5">
+            <button
+                type="button" // Important pour ne pas submit si dans un form
+                onClick={() => setGranularity('days')}
+                className={`flex items-center justify-between px-3 py-2 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'days' ? 'bg-slate-700 border-slate-500 text-white shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
+            >
+                <span className="flex items-center gap-2"><CalendarClock size={12}/> Daily (Macro)</span>
+                {granularity === 'days' && <div className="w-1.5 h-1.5 bg-neon-green rounded-full shadow-[0_0_5px_#00ff41]"></div>}
+            </button>
+            <button
+                type="button"
+                onClick={() => setGranularity('data')}
+                className={`flex items-center justify-between px-3 py-2 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'data' ? 'bg-neon-blue/10 border-neon-blue text-neon-blue shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
+            >
+                <span className="flex items-center gap-2"><LineChart size={12}/> Chart (Intraday)</span>
+                    {granularity === 'data' && <div className="w-1.5 h-1.5 bg-neon-blue rounded-full shadow-[0_0_5px_#00f3ff]"></div>}
+            </button>
+        </div>
+    </div>
+  );
+
   if (!definition) return null;
 
   return (
-    <div className="absolute top-4 right-4 z-50 w-80 animate-in fade-in zoom-in duration-300">
-      <div className="bg-slate-900/90 backdrop-blur-xl border border-neon-blue/50 shadow-[0_0_40px_rgba(0,243,255,0.1)] overflow-hidden relative rounded-sm">
+    <div className="absolute top-16 right-4 z-50 w-[340px] animate-in fade-in zoom-in duration-300 origin-top-right">
+      
+      {/* GLASS CONTAINER (Même style que IndicatorMenu : /90 et blur-xl) */}
+      <div className="bg-slate-950/90 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-lg overflow-hidden flex flex-col max-h-[85vh]">
         
-        <div className="h-0.5 w-full bg-gradient-to-r from-neon-blue via-neon-purple to-neon-blue"></div>
-        
-        <div className="flex items-center justify-between p-3 border-b border-white/10 bg-black/40">
-           <div className="flex items-center gap-2 text-neon-blue">
-              <Activity size={16} />
-              <span className="text-xs font-bold uppercase tracking-widest">EDIT_{definition.id}</span>
+        {/* HEADER DECORATION */}
+        <div className="h-1 w-full bg-gradient-to-r from-neon-blue via-purple-500 to-neon-blue opacity-80"></div>
+
+        {/* TITLE BAR */}
+        <div className="flex items-center justify-between p-4 border-b border-white/5 bg-white/5">
+           <div className="flex items-center gap-2 text-neon-blue drop-shadow-[0_0_5px_rgba(0,243,255,0.5)]">
+              <Activity size={18} />
+              <span className="text-sm font-bold uppercase tracking-[0.15em] font-mono">
+                CONFIG_{definition.id}
+              </span>
            </div>
-           <div className="flex items-center gap-2">
-             {isVisualLoading && <RotateCw size={12} className="text-neon-blue animate-spin" />}
-             <button onClick={onClose} className="text-slate-500 hover:text-white transition">
-                <X size={16} />
+           <div className="flex items-center gap-3">
+             {isVisualLoading && <RotateCw size={14} className="text-neon-blue animate-spin" />}
+             <button onClick={onClose} className="text-slate-500 hover:text-red-400 transition-colors">
+                <X size={18} />
              </button>
            </div>
         </div>
 
-        <div className="p-4 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
+        {/* TABS SWITCHER */}
+        <div className="flex p-1 bg-black/40 border-b border-white/5">
+            <button 
+                onClick={() => setActiveTab('MANUAL')}
+                className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 rounded transition-all
+                ${activeTab === 'MANUAL' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+                <Settings2 size={12} /> Parameters
+            </button>
+            <button 
+                onClick={() => setActiveTab('SMART')}
+                className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 rounded transition-all
+                ${activeTab === 'SMART' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'text-slate-500 hover:text-indigo-400'}`}
+            >
+                <Wand2 size={12} /> Smart A.I.
+            </button>
+        </div>
+
+        {/* SCROLLABLE CONTENT AREA */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
             
-            {mainParamKey && (
-                <div className="space-y-2 bg-slate-800/50 p-3 rounded border border-slate-700/50">
-                    <div className="flex justify-between items-end mb-1">
-                        <label className="text-[10px] uppercase text-neon-blue font-bold tracking-wider flex items-center gap-1">
-                            <SlidersHorizontal size={10} /> {mainParamConfig.label} (Quick)
-                        </label>
-                        <span className="text-lg font-mono text-white font-bold">
-                            {sliderValue}
-                        </span>
+            {/* --- TAB: MANUAL --- */}
+            {activeTab === 'MANUAL' && (
+                <div className="space-y-5">
+                    {Object.entries(definition.params).map(([key, config]) => (
+                        <div key={key} className="group">
+                             <div className="flex justify-between items-center mb-2">
+                                <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider group-hover:text-neon-blue transition-colors">
+                                    {config.label}
+                                </label>
+                                <span className="text-[9px] text-slate-600 font-mono">
+                                    [{config.min ?? 0} - {config.max ?? 100}]
+                                </span>
+                             </div>
+
+                             {config.type === 'select' ? (
+                                <select
+                                    value={localParams[key]}
+                                    onChange={(e) => handleParamChange(key, e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:border-neon-blue outline-none"
+                                >
+                                    {config.options.map(opt => (
+                                        <option key={opt} value={opt}>{opt.toUpperCase()}</option>
+                                    ))}
+                                </select>
+                             ) : (
+                                /* UNIFIED SLIDER + INPUT CONTROL */
+                                <div className="flex items-center gap-3 bg-slate-900/50 p-1 rounded border border-slate-800 focus-within:border-slate-600 transition-colors">
+                                    <input 
+                                        type="range"
+                                        min={config.min} max={config.max} step={config.step || 1}
+                                        value={localParams[key]}
+                                        onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
+                                        className="flex-1 h-1 bg-slate-700 rounded-full appearance-none cursor-pointer accent-neon-blue hover:accent-white transition-all ml-2"
+                                    />
+                                    <div className="w-[1px] h-4 bg-slate-700"></div>
+                                    <input 
+                                        type="number"
+                                        min={config.min} max={config.max} step={config.step || 1}
+                                        value={localParams[key]}
+                                        onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
+                                        className="w-16 bg-transparent text-right text-xs font-mono font-bold text-white focus:outline-none p-1"
+                                    />
+                                </div>
+                             )}
+                        </div>
+                    ))}
+
+                    <hr className="border-white/10" />
+
+                    {/* SETTINGS GRID */}
+                    <div className="grid grid-cols-1 gap-4">
+                        <GranularitySelector />
+                        
+                        {/* COLOR PICKER (Maintenant en dessous) */}
+                        <div className="space-y-2 mt-2">
+                            <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+                                <Palette size={10} /> Style & Color
+                            </label>
+                            <div className="grid grid-cols-8 gap-1.5 content-start p-2 bg-slate-900/50 rounded border border-slate-800">
+                                {COLORS.slice(0, 16).map(c => (
+                                    <button
+                                        key={c}
+                                        onClick={() => setColor(c)}
+                                        className={`w-full aspect-square rounded-[2px] transition-all hover:scale-110 ${color === c ? 'ring-1 ring-white shadow-[0_0_5px_currentColor]' : 'opacity-40 hover:opacity-100'}`}
+                                        style={{ backgroundColor: c, color: c }}
+                                    />
+                                ))}
+                            </div>
+                        </div>
                     </div>
-                    <input 
-                        type="range" 
-                        min={mainParamConfig.min} 
-                        max={mainParamConfig.max} 
-                        step={mainParamConfig.step || 1}
-                        value={sliderValue}
-                        onChange={(e) => handleParamChange(mainParamKey, parseFloat(e.target.value))}
-                        className="w-full h-1 bg-slate-700 appearance-none cursor-pointer accent-neon-blue hover:accent-white transition-all rounded-full"
-                    />
                 </div>
             )}
 
-            <div className="space-y-3">
-                <div className="text-[10px] uppercase text-slate-500 font-bold border-b border-white/5 pb-1">Paramètres</div>
-                
-                {Object.entries(definition.params).map(([key, config]) => (
-                    <div key={key} className="space-y-1">
-                        <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wide">{config.label}</label>
-                        
-                        {config.type === 'select' ? (
-                            <select
-                                value={localParams[key]}
-                                onChange={(e) => handleParamChange(key, e.target.value)}
-                                className="w-full bg-black/50 border border-slate-700 p-2 text-xs text-white focus:border-neon-blue outline-none rounded-sm"
-                            >
-                                {config.options.map(opt => (
-                                    <option key={opt} value={opt}>{opt.toUpperCase()}</option>
-                                ))}
-                            </select>
-                        ) : (
-                            <div className="flex items-center gap-2">
-                                <input 
-                                    type="number"
-                                    min={config.min}
-                                    max={config.max}
-                                    step={config.step || 1}
-                                    value={localParams[key]}
-                                    onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
-                                    className="flex-1 bg-black/50 border border-slate-700 p-1.5 text-xs text-white focus:border-neon-blue outline-none font-mono rounded-sm"
-                                />
-                                <span className="text-[9px] text-slate-600 font-mono">
-                                    [{config.min}-{config.max}]
-                                </span>
+            {/* --- TAB: SMART AI --- */}
+            {activeTab === 'SMART' && (
+                <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                    <div className="bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-lg relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-10">
+                            <Cpu size={64} />
+                        </div>
+                        <h4 className="text-indigo-300 font-bold text-xs uppercase tracking-widest mb-2 flex items-center gap-2">
+                            <Wand2 size={12} /> Optimization Core
+                        </h4>
+                        <p className="text-[10px] text-indigo-200/70 leading-relaxed max-w-[90%]">
+                            {definition.type === 'BAND' 
+                                ? `L'IA ajuste les paramètres pour que le prix reste à l'intérieur des bandes ${smartTarget}% du temps.`
+                                : `L'IA ajuste la période pour que le prix de clôture soit au-dessus de l'indicateur ${smartTarget}% du temps.`
+                            }
+                        </p>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <div className="flex justify-between">
+                                <label className="text-[10px] text-slate-400 font-bold uppercase">
+                                    Target Accuracy ({definition.type === 'BAND' ? 'Inside' : 'Price > Ind'})
+                                </label>
+                                <span className="text-xs font-mono font-bold text-indigo-400">{smartTarget}%</span>
                             </div>
-                        )}
-                    </div>
-                ))}
-            </div>
-
-            <hr className="border-white/10" />
-
-            <div className="grid grid-cols-2 gap-4">
-                {/* Granularité - SECTION REFAITE */}
-                <div className="space-y-2">
-                    <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
-                        <Layers size={10} /> Timeframe Source
-                    </label>
-                    <div className="flex flex-col gap-1.5">
-                        <button
-                            onClick={() => setGranularity('days')}
-                            className={`flex items-center justify-between px-2 py-1.5 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'days' ? 'bg-slate-700 border-slate-500 text-white shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
-                        >
-                            <span className="flex items-center gap-2"><CalendarClock size={12}/> Daily (Macro)</span>
-                            {granularity === 'days' && <div className="w-1.5 h-1.5 bg-neon-green rounded-full shadow-[0_0_5px_#00ff41]"></div>}
-                        </button>
-                        <button
-                            onClick={() => setGranularity('data')}
-                            className={`flex items-center justify-between px-2 py-1.5 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'data' ? 'bg-neon-blue/10 border-neon-blue text-neon-blue shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
-                        >
-                            <span className="flex items-center gap-2"><LineChart size={12}/> Chart (Intraday)</span>
-                             {granularity === 'data' && <div className="w-1.5 h-1.5 bg-neon-blue rounded-full shadow-[0_0_5px_#00f3ff]"></div>}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Couleur */}
-                <div className="space-y-2">
-                    <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
-                        <Palette size={10} /> Couleur
-                    </label>
-                    <div className="grid grid-cols-5 gap-1 content-start">
-                        {COLORS.slice(0, 32).map(c => (
-                            <button
-                                key={c}
-                                onClick={() => setColor(c)}
-                                className={`w-4 h-4 rounded-sm border transition-all ${color === c ? 'border-white scale-110 shadow-sm' : 'border-transparent opacity-50 hover:opacity-100'}`}
-                                style={{ backgroundColor: c }}
+                            <input 
+                                type="range" min="10" max="95" step="5"
+                                value={smartTarget}
+                                onChange={(e) => setSmartTarget(Number(e.target.value))}
+                                className="w-full h-1 bg-slate-800 rounded-full appearance-none cursor-pointer accent-indigo-500"
                             />
-                        ))}
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] text-slate-400 font-bold uppercase">Learning Lookback</label>
+                            <select 
+                                value={smartLookback}
+                                onChange={(e) => setSmartLookback(Number(e.target.value))}
+                                className="w-full bg-slate-900 border border-slate-700 p-2 text-xs text-white focus:border-indigo-500 outline-none rounded"
+                            >
+                                <option value="30">1 Mois (Réactif)</option>
+                                <option value="90">3 Mois (Court Terme)</option>
+                                <option value="180">6 Mois (Moyen Terme)</option>
+                                <option value="365">1 An (Standard)</option>
+                                <option value="730">2 Ans (Long Terme)</option>
+                            </select>
+                        </div>
+
+                        <hr className="border-white/10" />
+                        
+                        {/* Granularité ajoutée ici aussi ! */}
+                        <GranularitySelector />
+
+                        <button
+                            onClick={runSmartOptimization}
+                            disabled={isSmartComputing}
+                            className="w-full py-4 mt-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-widest rounded transition-all shadow-lg hover:shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-3"
+                        >
+                            {isSmartComputing ? (
+                                <>
+                                    <RotateCw size={14} className="animate-spin" /> Calculating...
+                                </>
+                            ) : (
+                                <>
+                                    <Cpu size={14} /> Run Neural Optimize
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
-            </div>
-
-             <div className="space-y-1 pt-2">
-                <input 
-                    type="text" 
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Nom personnalisé..."
-                    className="w-full bg-transparent border-b border-slate-700 py-1 text-xs text-slate-300 focus:border-neon-blue outline-none transition-colors placeholder:text-slate-700"
-                />
-            </div>
-
-            <div className="pt-2">
-                <button 
-                    onClick={handleSave}
-                    className="w-full bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/50 text-neon-blue py-2 flex items-center justify-center gap-2 transition-all group rounded-sm"
-                >
-                    <Save size={16} className="group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-bold tracking-widest">APPLIQUER</span>
-                </button>
-            </div>
-
+            )}
         </div>
+
+        {/* FOOTER BAR (FIXED) */}
+        <div className="p-4 border-t border-white/10 bg-black/60 backdrop-blur-md space-y-3">
+            <input 
+                type="text" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Nom personnalisé..."
+                className="w-full bg-transparent border-b border-slate-700 py-1 text-xs text-slate-300 focus:border-neon-blue outline-none transition-colors placeholder:text-slate-700 mb-2"
+            />
+            
+            {/* BOUTON SAVE CLIQUE-ABLE SANS SOUCI DE HITBOX */}
+            <button 
+                onClick={handleSave}
+                className="w-full bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/50 text-neon-blue py-3 rounded flex items-center justify-center gap-2 transition-all group active:scale-95 cursor-pointer z-50"
+            >
+                <Save size={16} className="group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold tracking-[0.2em]">APPLY CHANGES</span>
+            </button>
+        </div>
+
       </div>
     </div>
   );

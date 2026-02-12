@@ -237,7 +237,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     const mainData = [];
     const volumeData = [];
 
-    // DATA SANITIZATION
+    // DATA SANITIZATION (CORRECTIF ICI)
     for(let i=0; i<data.length; i++) {
         const d = data[i];
         if (!d || !d.date) continue;
@@ -246,12 +246,13 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         const time = new Date(d.date).getTime() / 1000;
         if (isNaN(time)) continue;
 
-        // Valeurs Safe (évite les NaN qui font crasher Lightweight Charts)
-        const open = d.open || 0;
-        const high = d.high || 0;
-        const low = d.low || 0;
-        const close = d.close || 0;
-        const volume = d.volume || 0;
+        // Valeurs Safe : On force la conversion en Number et on met 0 si échec (NaN)
+        // Cela empêche lightweight-charts de crasher sur "Received NaN"
+        const open = Number(d.open) || 0;
+        const high = Number(d.high) || 0;
+        const low = Number(d.low) || 0;
+        const close = Number(d.close) || 0;
+        const volume = Number(d.volume) || 0;
 
         const isUp = close >= open;
         volumeData.push({
@@ -455,18 +456,27 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
 
   // --- 4. LOGIC : LIVE UPDATE ---
   useEffect(() => {
-    if (!livePrice || !mainSeriesRef.current || !lastCandleRef.current) return;
+    // SÉCURITÉ SUPPLÉMENTAIRE ICI : On vérifie que livePrice est un nombre valide
+    if (
+        !livePrice || 
+        isNaN(Number(livePrice)) || 
+        !mainSeriesRef.current || 
+        !lastCandleRef.current
+    ) return;
 
     const current = lastCandleRef.current;
     
+    // On re-force le typage Number ici aussi
+    const safePrice = Number(livePrice);
+    
     const updatedCandle = {
         ...current,
-        close: livePrice,
-        high: Math.max(current.high !== undefined ? current.high : current.value, livePrice),
-        low: Math.min(current.low !== undefined ? current.low : current.value, livePrice),
+        close: safePrice,
+        high: Math.max(Number(current.high !== undefined ? current.high : current.value), safePrice),
+        low: Math.min(Number(current.low !== undefined ? current.low : current.value), safePrice),
     };
 
-    if (chartType === 'line') updatedCandle.value = livePrice;
+    if (chartType === 'line') updatedCandle.value = safePrice;
 
     mainSeriesRef.current.update(updatedCandle);
     lastCandleRef.current = updatedCandle;
@@ -474,13 +484,13 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     if (chartType === 'candle') {
         setLegend(prev => ({
             ...prev,
-            close: livePrice,
+            close: safePrice,
             high: updatedCandle.high,
             low: updatedCandle.low,
-            color: livePrice >= updatedCandle.open ? 'text-neon-green' : 'text-neon-red'
+            color: safePrice >= updatedCandle.open ? 'text-neon-green' : 'text-neon-red'
         }));
     } else {
-        setLegend(prev => ({ ...prev, close: livePrice }));
+        setLegend(prev => ({ ...prev, close: safePrice }));
     }
   }, [livePrice, chartType]);
   
