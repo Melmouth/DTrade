@@ -34,7 +34,19 @@ const TOGGLES_CONFIG = [
   { key: 'priceLines', label: 'LNS', type: 'ui', icon: MoreHorizontal, tooltip: 'Lignes de prix' },
 ];
 
-export default function StockChart({ data, dailyData, meta, loading, activePeriod, onPeriodChange, indicators = [], previewSeries = null, livePrice = null }) {
+// AJOUT DE LA PROP isMarketOpen (défaut false pour sécurité)
+export default function StockChart({ 
+  data, 
+  dailyData, 
+  meta, 
+  loading, 
+  activePeriod, 
+  onPeriodChange, 
+  indicators = [], 
+  previewSeries = null, 
+  livePrice = null, 
+  isMarketOpen = false // <--- FIX HERE
+}) {
   const chartContainerRef = useRef();
   const chartInstance = useRef(null);
   
@@ -464,6 +476,11 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
         !lastCandleRef.current
     ) return;
 
+    // --- FIX FLICKERING : GUARD CLAUSE ---
+    // Si le marché est fermé, on ne touche PAS au graphique.
+    // L'historique (snapshot) fait foi.
+    if (!isMarketOpen) return; 
+
     const current = lastCandleRef.current;
     
     // On re-force le typage Number ici aussi
@@ -492,7 +509,7 @@ export default function StockChart({ data, dailyData, meta, loading, activePerio
     } else {
         setLegend(prev => ({ ...prev, close: safePrice }));
     }
-  }, [livePrice, chartType]);
+  }, [livePrice, chartType, isMarketOpen]); // <-- Dépendance ajoutée
   
   // Visibility changes for Volume
   useEffect(() => {
