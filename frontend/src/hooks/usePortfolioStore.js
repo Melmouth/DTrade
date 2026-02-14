@@ -4,6 +4,7 @@ import { marketApi } from '../api/client';
 export const usePortfolioStore = create((set, get) => ({
   // --- STATE ---
   cash: 0,
+  investedCapital: 0, // <--- NOUVEAU : On stocke le capital réel investi
   positions: [],
   history: [],
   equity: 0,
@@ -30,6 +31,7 @@ export const usePortfolioStore = create((set, get) => ({
         equity: summaryRes.data.equity_value,
         pnl_total: summaryRes.data.total_pnl,
         pnl_pct: summaryRes.data.pnl_pct,
+        investedCapital: summaryRes.data.invested_capital || 0, // <--- NOUVEAU : Sauvegarde du capital investi reçu du backend
         positions: positionsRes.data,
         history: historyRes.data,
         loading: false,
@@ -44,7 +46,8 @@ export const usePortfolioStore = create((set, get) => ({
   // 2. Synchronisation Temps Réel (Appelé par App.jsx via useGlobalStream)
   // C'est ici que la magie opère : On recalcule l'Equity sans toucher au Backend
   syncLivePrices: (priceMap) => {
-    const { cash, positions } = get();
+    // On récupère aussi investedCapital
+    const { cash, positions, investedCapital } = get(); 
     if (!positions.length) return;
 
     let totalPositionValue = 0;
@@ -60,7 +63,10 @@ export const usePortfolioStore = create((set, get) => ({
         const currentPrice = liveData.price;
         const marketValue = pos.quantity * currentPrice;
         const pnl = (currentPrice - pos.avg_price) * pos.quantity;
-        const pnlPct = (pnl / (pos.quantity * pos.avg_price));
+        
+        // Sécurité division par zéro pour le pct individuel
+        const costBasis = pos.quantity * pos.avg_price;
+        const pnlPct = costBasis > 0 ? (pnl / costBasis) : 0;
 
         // Mise à jour de l'objet position (pour l'affichage tableau)
         totalPositionValue += marketValue;
@@ -80,14 +86,16 @@ export const usePortfolioStore = create((set, get) => ({
 
     if (needsUpdate) {
         const totalEquity = cash + totalPositionValue;
-        // P&L global approximatif (basé sur 100k start - à améliorer plus tard)
-        const startCapital = 100000; 
+        
+        // CORRECTION : Calcul dynamique basé sur le capital investi réel
+        // Si investedCapital est 0 (ex: bug ou pas de dépôt), on met 1 pour éviter div/0
+        const baseCapital = investedCapital > 0 ? investedCapital : 1; 
         
         set({
             positions: updatedPositions,
             equity: totalEquity,
-            pnl_total: totalEquity - startCapital,
-            pnl_pct: (totalEquity - startCapital) / startCapital
+            pnl_total: totalEquity - investedCapital, // Calcul dynamique
+            pnl_pct: (totalEquity - investedCapital) / baseCapital // Calcul dynamique
         });
     }
   },

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from ..services import portfolio_service, market_data
 from ..models import OrderRequest, CashOperationRequest
+from ..database import get_db
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -8,19 +9,24 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 def get_portfolio_summary():
     """
     Dashboard principal : Cash, Equity Totale, P&L Global.
+    Calcul dynamique basé sur l'historique des transactions.
     """
-    # 1. Récupérer le cash
-    account = portfolio_service.get_account()
-    cash = account['balance']
+    # 1. Récupérer le cash et le Capital Investi (Net Deposits)
+    with get_db() as conn:
+        account = conn.execute("SELECT * FROM accounts LIMIT 1").fetchone()
+        cash = account['balance'] if account else 0.0
+
+        # Calculer le total investi (Dépôts - Retraits)
+        # On utilise COALESCE ou "or 0.0" pour gérer le cas où c'est vide (None)
+        dep = conn.execute("SELECT SUM(total_amount) FROM transactions WHERE type='DEPOSIT'").fetchone()[0] or 0.0
+        wit = conn.execute("SELECT SUM(total_amount) FROM transactions WHERE type='WITHDRAW'").fetchone()[0] or 0.0
+        invested_capital = dep - wit
 
     # 2. Récupérer les positions
     positions = portfolio_service.get_positions()
 
     # 3. Calculer l'Equity (Valeur Latente)
     equity_positions = 0.0
-    
-    # On récupère les prix live pour toutes les positions
-    # (Optimisation: on pourrait faire un bulk fetch ici aussi si beaucoup de positions)
     for pos in positions:
         live = market_data.provider.fetch_live_price(pos['ticker'])
         current_price = live.get('price', 0.0)
@@ -28,18 +34,22 @@ def get_portfolio_summary():
 
     total_equity = cash + equity_positions
     
-    # 4. Estimation simplifiée du P&L (Equity actuelle - 100k départ)
-    # Dans une version avancée, on sommerait les dépôts nets.
-    start_capital = 100000.0 
-    total_pnl = total_equity - start_capital
-    pnl_pct = (total_pnl / start_capital) if start_capital > 0 else 0.0
+    # 4. Calcul du P&L Réel (Equity actuelle - Capital réellement investi)
+    # Si aucun capital investi (cas après un nuke total sans dépôt), on évite la division par zéro
+    if invested_capital <= 0:
+        total_pnl = 0.0
+        pnl_pct = 0.0
+    else:
+        total_pnl = total_equity - invested_capital
+        pnl_pct = total_pnl / invested_capital
 
     return {
         "cash_balance": round(cash, 2),
         "equity_value": round(total_equity, 2),
         "total_pnl": round(total_pnl, 2),
         "pnl_pct": round(pnl_pct, 4),
-        "positions_count": len(positions)
+        "positions_count": len(positions),
+        "invested_capital": invested_capital # On renvoie cette info au front pour le calcul temps réel
     }
 
 @router.get("/positions")
