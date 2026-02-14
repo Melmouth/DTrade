@@ -143,9 +143,13 @@ def get_full_snapshot(ticker: str, period: str):
     # 2. Live
     live = _fetch_live_data(ticker)
     
-    # 3. Merge
+    # 3. Merge Intelligent
     chart = list(static["chart_data"])
-    if chart and live["price"] > 0:
+    
+    # --- FIX FLICKERING ---
+    # On ne met à jour la dernière bougie avec le live price QUE si le marché est OUVERT.
+    # Si fermé, on garde la bougie historique (Settlement Price) sans la modifier.
+    if chart and live["price"] > 0 and live.get("is_open"):
         last = chart[-1]
         last["close"] = live["price"]
         if live["price"] > last["high"]: last["high"] = live["price"]

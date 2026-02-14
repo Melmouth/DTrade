@@ -112,6 +112,24 @@ export function useMarketStream(ticker, defaultPeriod = '1mo') {
               // SÉCURITÉ : Si pas de données de base, on ne fait rien (on attend le snapshot)
               if (!prevData || !prevData.chart || !prevData.chart.data.length) return prevData;
 
+              // --- FIX LOGIQUE : SÉPARATION UI / CHART ---
+              const newLiveState = {
+                  price: update.price,
+                  change_pct: update.change_pct,
+                  is_open: update.is_open
+              };
+
+              // 1. Si le marché est FERMÉ, on met à jour uniquement l'info header (prix/status)
+              // On ne touche PAS au tableau chart.data pour éviter de créer des "Zombie Candles"
+              // C'est ici que le flickering est stoppé net.
+              if (!update.is_open) {
+                  return {
+                      ...prevData,
+                      live: newLiveState
+                  };
+              }
+
+              // 2. Si le marché est OUVERT, on continue la logique standard de bougie
               const currentPrice = update.price;
               const updateTime = update.timestamp; // Timestamp Unix (secondes) venant du backend
               
@@ -157,14 +175,10 @@ export function useMarketStream(ticker, defaultPeriod = '1mo') {
                 };
               }
 
-              // On retourne le nouvel état complet
+              // On retourne le nouvel état complet (Live + Chart)
               return {
                 ...prevData,
-                live: {
-                    price: currentPrice,
-                    change_pct: update.change_pct,
-                    is_open: update.is_open
-                },
+                live: newLiveState,
                 chart: {
                     ...prevData.chart,
                     data: newChartData
