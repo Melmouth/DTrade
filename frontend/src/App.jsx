@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye,
-  LayoutDashboard, Briefcase, Wallet 
+  LayoutDashboard, Briefcase
 } from 'lucide-react';
 
 // --- COMPONENTS ---
@@ -14,7 +14,6 @@ import IndicatorEditor from './components/IndicatorEditor';
 import BootSequence from './components/BootSequence';
 import CompanyInfo from './components/CompanyInfo';
 import MarketStatus from './components/MarketStatus';
-// NOUVEAU : Import de la vue Portfolio (sera créé juste après)
 import PortfolioView from './components/PortfolioView'; 
 
 // --- HOOKS ---
@@ -48,7 +47,6 @@ function App() {
   const { prices: globalPrices, updatePrice } = usePriceStore();
   
   // Connexion au flux global (WebSocket Sidebar & Portfolio Update)
-  // Reste actif peu importe la vue pour garantir la data fraiche
   useGlobalStream(updatePrice); 
 
   // Settings locaux
@@ -60,7 +58,6 @@ function App() {
   });
 
   // --- 3. FLUX MARKET (Graphique Actif) ---
-  // On ne coupe pas le flux Market quand on change de vue pour garder la réactivité au retour
   const streamTicker = booted ? ticker : null;
 
   const { 
@@ -113,7 +110,6 @@ function App() {
     e.preventDefault();
     if (searchInput.trim()) {
         setTicker(searchInput.toUpperCase());
-        // Si on cherche un ticker, on bascule auto sur la vue Market
         if (currentView !== 'MARKET') setCurrentView('MARKET');
     }
   };
@@ -153,9 +149,7 @@ function App() {
 
   // --- 6. PRIX D'AFFICHAGE ---
   const displayPrice = useMemo(() => {
-    // Priorité 1: Store Global (WebSocket rapide)
     if (globalPrices[ticker]?.price) return globalPrices[ticker].price;
-    // Priorité 2: Dernière bougie du chart
     if (chartData.length > 0) return chartData[chartData.length - 1].close;
     return null;
   }, [globalPrices, ticker, chartData]);
@@ -182,7 +176,7 @@ function App() {
               </h1>
           </div>
 
-          {/* VIEW SELECTOR (NAVIGATION TABS) */}
+          {/* VIEW SELECTOR */}
           <div className="flex bg-slate-900/50 p-1 rounded border border-slate-800">
              <button 
                 onClick={() => setCurrentView('MARKET')}
@@ -248,7 +242,6 @@ function App() {
           <Sidebar 
             data={sidebarData} 
             currentTicker={ticker}
-            // globalPrices supprimé ici (Sidebar utilise le store directement)
             onSelectTicker={handleSidebarSelect}
             onReload={loadSidebar}
           />
@@ -259,7 +252,7 @@ function App() {
           <div className="flex-1 p-0 md:p-6 overflow-y-auto">
             <div className="max-w-[1600px] mx-auto space-y-6">
               
-              {/* === VUE 1 : MARKET DASHBOARD (Classique) === */}
+              {/* === VUE 1 : MARKET DASHBOARD === */}
               {currentView === 'MARKET' && (
                 <>
                     {/* INFO BAR */}
@@ -312,25 +305,30 @@ function App() {
                         <AddToWatchlist ticker={ticker} watchlists={sidebarData} onUpdate={loadSidebar} />
                     </div>
 
-                    {/* ACTIVE INDICATORS */}
+                    {/* ACTIVE INDICATORS LIST */}
                     {currentIndicators.length > 0 && (
                         <div className="flex flex-wrap gap-3">
-                        {currentIndicators.map(ind => (
-                            <div key={ind.id} className={`relative flex items-center gap-2 px-3 py-1.5 text-[10px] border tracking-wider transition-all uppercase group ${ind.visible ? 'bg-slate-900/90 border-neon-blue/30 text-neon-blue shadow-[0_0_10px_rgba(0,243,255,0.1)]' : 'bg-transparent border-slate-800 text-slate-600 dashed opacity-70'}`}>
-                            <div className={`w-1.5 h-1.5 shadow-[0_0_5px_currentColor] ${!ind.visible && 'opacity-20'}`} style={{ backgroundColor: ind.color }}></div>
-                            <span className="font-bold">{ind.name}</span>
+                        {currentIndicators.map(ind => {
+                            // CORRECTION COULEUR: On regarde à la racine OU dans style
+                            const displayColor = ind.color || ind.style?.color || '#00f3ff';
                             
-                            <div className="flex gap-2 ml-2 pl-2 border-l border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => setEditingIndicator(ind)} className="hover:text-white hover:scale-110 transition text-neon-orange" title="Configurer">
-                                    <Edit2 size={12} />
-                                </button>
-                                <button onClick={() => toggleIndicatorVisibility(ind.id)} className="hover:text-white hover:scale-110 transition">
-                                    {ind.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                                </button>
-                                <button onClick={() => removeIndicator(ind.id)} className="hover:text-red-500 hover:scale-110 transition"><X size={12} /></button>
-                            </div>
-                            </div>
-                        ))}
+                            return (
+                                <div key={ind.id} className={`relative flex items-center gap-2 px-3 py-1.5 text-[10px] border tracking-wider transition-all uppercase group ${ind.visible ? 'bg-slate-900/90 border-neon-blue/30 text-neon-blue shadow-[0_0_10px_rgba(0,243,255,0.1)]' : 'bg-transparent border-slate-800 text-slate-600 dashed opacity-70'}`}>
+                                    <div className={`w-1.5 h-1.5 shadow-[0_0_5px_currentColor] ${!ind.visible && 'opacity-20'}`} style={{ backgroundColor: displayColor }}></div>
+                                    <span className="font-bold">{ind.name}</span>
+                                    
+                                    <div className="flex gap-2 ml-2 pl-2 border-l border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => setEditingIndicator(ind)} className="hover:text-white hover:scale-110 transition text-neon-orange" title="Configurer">
+                                            <Edit2 size={12} />
+                                        </button>
+                                        <button onClick={() => toggleIndicatorVisibility(ind.id)} className="hover:text-white hover:scale-110 transition">
+                                            {ind.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                                        </button>
+                                        <button onClick={() => removeIndicator(ind.id)} className="hover:text-red-500 hover:scale-110 transition"><X size={12} /></button>
+                                    </div>
+                                </div>
+                            );
+                        })}
                         </div>
                     )}
 
