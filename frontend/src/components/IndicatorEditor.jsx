@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   X, Save, Activity, RotateCw, Palette, Layers, 
-  BarChart3, CalendarClock, LineChart, Wand2, Settings2, Cpu 
+  CalendarClock, LineChart, Wand2, Settings2, Cpu 
 } from 'lucide-react';
 import { calculateIndicator, default as INDICATORS } from '../indicators/registry';
 
@@ -18,48 +18,54 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
   const [isVisualLoading, setIsVisualLoading] = useState(false);
   const [isSmartComputing, setIsSmartComputing] = useState(false);
 
-  // Configuration locale
+  // Configuration locale (Draft)
   const [localParams, setLocalParams] = useState(indicator.params || {});
   const [color, setColor] = useState(indicator.color);
   const [name, setName] = useState(indicator.name);
   const [granularity, setGranularity] = useState(indicator.granularity || 'days');
 
-  // Configuration Smart
+  // Configuration Smart (Legacy/Future)
   const [smartTarget, setSmartTarget] = useState(indicator.smartParams?.target || 50);
   const [smartLookback, setSmartLookback] = useState(indicator.smartParams?.lookback || 365);
 
   const definition = INDICATORS[indicator.type];
 
   // --- PREVIEW EFFECT (DEBOUNCE) ---
+  // Calcul local JS pour feedback immédiat (60fps feel)
   useEffect(() => {
     if (!definition) return;
+    
     const timer = setTimeout(() => {
         setIsVisualLoading(true);
+        // Utilisation de requestAnimationFrame pour ne pas bloquer le thread UI
         requestAnimationFrame(() => {
             try {
+                // Calcul "Draft" côté client
                 const dataToPreview = calculateIndicator(
                     { id: indicator.type, params: localParams, granularity },
                     chartData,
                     dailyData
                 );
+                
                 if (dataToPreview) {
                     onPreview({
                         ...indicator,
                         name, color, granularity,
                         params: localParams,
-                        data: dataToPreview 
+                        data: dataToPreview, // Données JS temporaires
+                        isPreview: true      // Flag pour le Chart
                     });
                 }
             } catch (e) {
-                console.error(e);
+                console.error("Preview Calc Error:", e);
             } finally {
                 setIsVisualLoading(false);
             }
         });
-    }, 50); // Debounce court
+    }, 50); // Debounce très court pour réactivité slider
 
     return () => clearTimeout(timer);
-  }, [localParams, color, name, granularity, indicator.type]);
+  }, [localParams, color, name, granularity, indicator.type, chartData, dailyData, definition, indicator, onPreview]);
 
   // --- HANDLERS ---
   const handleParamChange = (key, value) => {
@@ -67,27 +73,26 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
   };
 
   const handleSave = () => {
+    // On renvoie l'objet config PROPRE au parent.
+    // Le parent (App.jsx -> useIndicatorManager) se chargera de l'envoyer au Backend.
     onSave({
       ...indicator,
       params: localParams,
       granularity,
       color,
       name,
-      // On sauvegarde les prefs smart si on est dans l'onglet smart
       smartParams: activeTab === 'SMART' ? { target: smartTarget, lookback: smartLookback } : indicator.smartParams
     });
     onClose();
   };
 
-  // --- SMART OPTIMIZER LOGIC ---
+  // --- SMART OPTIMIZER LOGIC (SIMULATION UI) ---
   const runSmartOptimization = async () => {
     setIsSmartComputing(true);
     try {
-        // Simulation d'optimisation (A remplacer par l'appel API réel avec indicator.ticker)
-        // Dans le backend: Trend = target % au dessus / Band = target % dedans
         await new Promise(r => setTimeout(r, 800)); 
         
-        // Exemple de résultat simulé
+        // Logique simulée pour l'UX (En prod, appel API ici)
         const key = Object.keys(definition.params).find(k => definition.params[k].type === 'number');
         if (key) {
             const current = localParams[key];
@@ -98,7 +103,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
             setName(`${definition.name} (AI: ${smartTarget}% ${typeLabel})`);
         }
         
-        setActiveTab('MANUAL'); // Retour au manuel pour voir le résultat
+        setActiveTab('MANUAL'); 
     } catch (e) {
         console.error("Smart Error", e);
     } finally {
@@ -106,7 +111,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
     }
   };
 
-  // --- RENDER COMPONENT: GRANULARITY SELECTOR (Réutilisable) ---
+  // --- RENDER COMPONENT: GRANULARITY SELECTOR ---
   const GranularitySelector = () => (
     <div className="space-y-2">
         <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
@@ -114,7 +119,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
         </label>
         <div className="flex flex-col gap-1.5">
             <button
-                type="button" // Important pour ne pas submit si dans un form
+                type="button"
                 onClick={() => setGranularity('days')}
                 className={`flex items-center justify-between px-3 py-2 text-[9px] font-bold uppercase transition-all rounded border ${granularity === 'days' ? 'bg-slate-700 border-slate-500 text-white shadow-lg' : 'border-slate-800 text-slate-500 hover:border-slate-600'}`}
             >
@@ -138,7 +143,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
   return (
     <div className="absolute top-16 right-4 z-50 w-[340px] animate-in fade-in zoom-in duration-300 origin-top-right">
       
-      {/* GLASS CONTAINER (Même style que IndicatorMenu : /90 et blur-xl) */}
+      {/* GLASS CONTAINER */}
       <div className="bg-slate-950/90 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-lg overflow-hidden flex flex-col max-h-[85vh]">
         
         {/* HEADER DECORATION */}
@@ -206,7 +211,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                                     ))}
                                 </select>
                              ) : (
-                                /* UNIFIED SLIDER + INPUT CONTROL */
                                 <div className="flex items-center gap-3 bg-slate-900/50 p-1 rounded border border-slate-800 focus-within:border-slate-600 transition-colors">
                                     <input 
                                         type="range"
@@ -230,11 +234,9 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
 
                     <hr className="border-white/10" />
 
-                    {/* SETTINGS GRID */}
                     <div className="grid grid-cols-1 gap-4">
                         <GranularitySelector />
                         
-                        {/* COLOR PICKER (Maintenant en dessous) */}
                         <div className="space-y-2 mt-2">
                             <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
                                 <Palette size={10} /> Style & Color
@@ -275,9 +277,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <div className="flex justify-between">
-                                <label className="text-[10px] text-slate-400 font-bold uppercase">
-                                    Target Accuracy ({definition.type === 'BAND' ? 'Inside' : 'Price > Ind'})
-                                </label>
+                                <label className="text-[10px] text-slate-400 font-bold uppercase">Target Accuracy</label>
                                 <span className="text-xs font-mono font-bold text-indigo-400">{smartTarget}%</span>
                             </div>
                             <input 
@@ -297,15 +297,12 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                             >
                                 <option value="30">1 Mois (Réactif)</option>
                                 <option value="90">3 Mois (Court Terme)</option>
-                                <option value="180">6 Mois (Moyen Terme)</option>
                                 <option value="365">1 An (Standard)</option>
-                                <option value="730">2 Ans (Long Terme)</option>
                             </select>
                         </div>
 
                         <hr className="border-white/10" />
                         
-                        {/* Granularité ajoutée ici aussi ! */}
                         <GranularitySelector />
 
                         <button
@@ -328,7 +325,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
             )}
         </div>
 
-        {/* FOOTER BAR (FIXED) */}
+        {/* FOOTER BAR */}
         <div className="p-4 border-t border-white/10 bg-black/60 backdrop-blur-md space-y-3">
             <input 
                 type="text" 
@@ -338,7 +335,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
                 className="w-full bg-transparent border-b border-slate-700 py-1 text-xs text-slate-300 focus:border-neon-blue outline-none transition-colors placeholder:text-slate-700 mb-2"
             />
             
-            {/* BOUTON SAVE CLIQUE-ABLE SANS SOUCI DE HITBOX */}
             <button 
                 onClick={handleSave}
                 className="w-full bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/50 text-neon-blue py-3 rounded flex items-center justify-center gap-2 transition-all group active:scale-95 cursor-pointer z-50"
