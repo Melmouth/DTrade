@@ -1,12 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Settings2, Wand2, Palette, Activity, ChevronRight, ChevronLeft, 
   Layers, BarChart3, Zap, Anchor, TrendingUp, ArrowLeft, CalendarClock, LineChart, Cpu 
 } from 'lucide-react';
 import { marketApi } from '../api/client';
-
-// Import du Registre et des Définitions
-import { getAvailableIndicators, getIndicatorConfig, default as INDICATORS } from '../indicators/registry';
+import { calculateIndicator, getAvailableIndicators, getIndicatorConfig, default as INDICATORS } from '../indicators/registry';
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
@@ -15,43 +13,19 @@ const PRESET_COLORS = [
   '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
 ];
 
-// DÉFINITION DES CATÉGORIES
 const CATEGORIES = [
-  { 
-    id: 'INERTIA', 
-    label: 'Inertia', 
-    icon: TrendingUp, 
-    color: 'text-neon-blue', 
-    borderColor: 'group-hover:border-neon-blue/50',
-    desc: 'Trend Following & Momentum',
-    filter: (tags) => tags.includes('Trend') && !tags.includes('Stop') && !tags.includes('Reversal') 
-  },
-  { 
-    id: 'ENERGY', 
-    label: 'Energy', 
-    icon: Zap, 
-    color: 'text-neon-orange', 
-    borderColor: 'group-hover:border-neon-orange/50',
-    desc: 'Volatility & Bands',
-    filter: (tags) => tags.includes('Volatility') || tags.includes('Band')
-  },
-  { 
-    id: 'GRAVITY', 
-    label: 'Gravity', 
-    icon: Anchor, 
-    color: 'text-neon-purple', 
-    borderColor: 'group-hover:border-neon-purple/50',
-    desc: 'Stops, Reversals & Exits',
-    filter: (tags) => tags.includes('Stop') || tags.includes('Reversal')
-  }
+  { id: 'INERTIA', label: 'Inertia', icon: TrendingUp, color: 'text-neon-blue', borderColor: 'group-hover:border-neon-blue/50', desc: 'Trend Following & Momentum', filter: (tags) => tags.includes('Trend') && !tags.includes('Stop') && !tags.includes('Reversal') },
+  { id: 'ENERGY', label: 'Energy', icon: Zap, color: 'text-neon-orange', borderColor: 'group-hover:border-neon-orange/50', desc: 'Volatility & Bands', filter: (tags) => tags.includes('Volatility') || tags.includes('Band') },
+  { id: 'GRAVITY', label: 'Gravity', icon: Anchor, color: 'text-neon-purple', borderColor: 'group-hover:border-neon-purple/50', desc: 'Stops, Reversals & Exits', filter: (tags) => tags.includes('Stop') || tags.includes('Reversal') }
 ];
 
-export default function IndicatorMenu({ ticker, onAddIndicator }) {
+// AJOUT DES PROPS DE DONNÉES ET PREVIEW
+export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndicator, onPreview }) {
   const [isOpen, setIsOpen] = useState(false);
   
   // Navigation State
-  const [activeCategory, setActiveCategory] = useState(null); // 'INERTIA' | 'ENERGY' | 'GRAVITY'
-  const [selectedId, setSelectedId] = useState(null); // Indicator ID (ex: 'SMA')
+  const [activeCategory, setActiveCategory] = useState(null); 
+  const [selectedId, setSelectedId] = useState(null); 
   
   const [mode, setMode] = useState('manual');
   const [loading, setLoading] = useState(false);
@@ -64,21 +38,68 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
   const [smartTarget, setSmartTarget] = useState(50);
   const [smartLookback, setSmartLookback] = useState(365);
 
-  // Récupération de la liste complète
+  const calcTimeoutRef = useRef(null);
+
   const allIndicators = useMemo(() => getAvailableIndicators(), []);
 
-  // Filtrage des indicateurs selon la catégorie active
   const filteredIndicators = useMemo(() => {
     if (!activeCategory) return [];
     const catDef = CATEGORIES.find(c => c.id === activeCategory);
     return allIndicators.filter(ind => catDef.filter(ind.tags || []));
   }, [activeCategory, allIndicators]);
 
-  // Récupération de la définition complète de l'indicateur sélectionné
   const currentDef = selectedId ? INDICATORS[selectedId] : null;
+
+  // --- EFFET DE PREVIEW (IDENTIQUE À L'ÉDITEUR) ---
+  useEffect(() => {
+      // Si le menu est fermé ou pas d'indicateur sélectionné, on nettoie le preview
+      if (!isOpen || !selectedId) {
+          if (onPreview) onPreview(null);
+          return;
+      }
+
+      if (!currentDef || !chartData) return;
+
+      // Debounce pour ne pas tuer le CPU
+      if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
+
+      calcTimeoutRef.current = setTimeout(() => {
+          requestAnimationFrame(() => {
+              try {
+                  const dataToPreview = calculateIndicator(
+                      { id: selectedId, params: formParams, granularity },
+                      chartData,
+                      dailyData
+                  );
+
+                  if (dataToPreview && onPreview) {
+                      onPreview({
+                          id: 'MENU_PREVIEW_TEMP', // ID Temporaire
+                          type: selectedId,
+                          name: customName || currentDef.name,
+                          color: color,
+                          style: currentDef.type === 'BAND' ? 'BAND' : 'LINE',
+                          granularity: granularity,
+                          params: formParams,
+                          data: dataToPreview,
+                          isPreview: true,
+                          visible: true
+                      });
+                  }
+              } catch (e) {
+                  console.error("Menu Preview Calc Error:", e);
+              }
+          });
+      }, 50); // 50ms pour être très réactif
+
+      return () => { if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current); };
+
+  }, [selectedId, formParams, color, granularity, customName, chartData, dailyData, isOpen]);
+
 
   const resetMenu = () => {
     setIsOpen(false);
+    if (onPreview) onPreview(null); // Nettoyage immédiat
     setTimeout(() => {
         setSelectedId(null);
         setActiveCategory(null);
@@ -91,14 +112,10 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
 
   const handleSelectIndicator = (ind) => {
     setSelectedId(ind.id);
-    
-    // Charger la config par défaut
     const config = getIndicatorConfig(ind.id);
     setFormParams(config.params);
     setColor(config.color || '#3b82f6');
     setGranularity(config.granularity || 'days');
-
-    // Init Smart Target par défaut
     if (ind.type === 'BAND') setSmartTarget(80);
     else setSmartTarget(50);
   };
@@ -115,12 +132,10 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
       let finalParams = { ...formParams };
       let displayName = customName;
 
-      // --- LOGIQUE SMART ---
       if (mode === 'smart') {
         const decimalTarget = smartTarget / 100;
         let res;
-
-        // Appel API selon le type (Simulation si pas d'API dispo pour tous)
+        // ... (Logique Smart inchangée)
         if (selectedId === 'SMA') {
             res = await marketApi.calculateSmartSMA(ticker, decimalTarget, smartLookback);
             finalParams.period = res.data.optimal_n;
@@ -137,17 +152,13 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
             res = await marketApi.calculateSmartBollinger(ticker, decimalTarget, smartLookback);
             finalParams.stdDev = res.data.optimal_k;
         } else {
-             // Fallback pour les indicateurs sans endpoint Smart dédié (simulation)
-             // Dans une vraie app, on désactiverait le mode Smart pour ceux-là
              await new Promise(r => setTimeout(r, 500));
         }
       }
 
-      // --- NOMMAGE AUTOMATIQUE ---
       if (!displayName) {
         const smartTag = mode === 'smart' ? ` [AI ${smartTarget}%]` : '';
         const granTag = granularity === 'data' ? ' (Intraday)' : '';
-        // Récupère la première clé de paramètre (souvent 'period') pour le nom
         const mainParamKey = Object.keys(finalParams)[0]; 
         const mainParamVal = finalParams[mainParamKey];
         displayName = `${currentDef.name} (${mainParamVal})${smartTag}${granTag}`;
@@ -156,10 +167,14 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
       onAddIndicator({
         id: Date.now(),
         type: selectedId,
-        style: currentDef.type,
+        // Style object standardisé pour le backend
+        style: { 
+            color: color, 
+            type: currentDef.type === 'BAND' ? 'BAND' : 'LINE' 
+        },
         params: finalParams,
         granularity: granularity,
-        color: color,
+        color: color, // Fallback pour affichage immédiat
         name: displayName,
         isSmart: mode === 'smart',
         smartParams: mode === 'smart' ? { target: smartTarget, lookback: smartLookback } : null
@@ -174,7 +189,6 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
     }
   };
 
-  // --- RENDU PARTIEL : SELECTEUR DE GRANULARITÉ (Réutilisable) ---
   const GranularitySelector = () => (
     <div className="space-y-2">
         <label className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
@@ -319,7 +333,7 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                 <div className="p-4 space-y-5 max-h-[400px] overflow-y-auto custom-scrollbar">
                   {mode === 'manual' ? (
                     <>
-                        {/* --- INPUTS DYNAMIQUES (Style Slider + Input) --- */}
+                        {/* --- INPUTS DYNAMIQUES --- */}
                         {currentDef && Object.entries(currentDef.params).map(([key, field]) => (
                              <div key={key} className="space-y-1">
                                 <div className="flex justify-between items-center">
@@ -369,15 +383,15 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                     <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                       
                       <div className="bg-indigo-500/10 border border-indigo-500/20 p-3 rounded relative overflow-hidden">
-                         <div className="absolute top-0 right-0 p-2 opacity-10"><Cpu size={48} /></div>
-                         <h4 className="text-indigo-300 font-bold text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
-                             <Wand2 size={10} /> Optimization Core
-                         </h4>
-                         <p className="text-[9px] text-indigo-200/70 leading-relaxed">
+                          <div className="absolute top-0 right-0 p-2 opacity-10"><Cpu size={48} /></div>
+                          <h4 className="text-indigo-300 font-bold text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                              <Wand2 size={10} /> Optimization Core
+                          </h4>
+                          <p className="text-[9px] text-indigo-200/70 leading-relaxed">
                             {currentDef.type === 'BAND' 
                                 ? `Largeur ajustée pour contenir ${smartTarget}% du prix.` 
                                 : `Période ajustée pour ${smartTarget}% de signaux positifs.`}
-                         </p>
+                          </p>
                       </div>
 
                       <div className="space-y-2">
@@ -408,8 +422,6 @@ export default function IndicatorMenu({ ticker, onAddIndicator }) {
                       </div>
 
                       <hr className="border-white/10" />
-                      
-                      {/* Granularité aussi dispo en SMART ! */}
                       <GranularitySelector />
                     </div>
                   )}

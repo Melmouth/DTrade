@@ -68,18 +68,17 @@ def init_db():
             CREATE TABLE IF NOT EXISTS saved_indicators (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ticker TEXT NOT NULL,
-                type TEXT NOT NULL,       -- "SMA", "BB", "RSI"...
-                name TEXT,                -- Nom custom (ex: "Ma Moyenne Mobile")
-                params TEXT NOT NULL,     -- Stocké en JSON String (ex: '{"period": 20}')
-                style TEXT NOT NULL,      -- Stocké en JSON String (ex: '{"color": "#ff0000"}')
-                granularity TEXT DEFAULT 'days', -- "days" ou "data"
+                type TEXT NOT NULL,
+                name TEXT,
+                params TEXT NOT NULL,
+                style TEXT NOT NULL,
+                granularity TEXT DEFAULT 'days',
+                period TEXT DEFAULT '1mo',      -- <--- NOUVELLE COLONNE
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
-        # Index pour récupération rapide par ticker lors du chargement du chart
         conn.execute("CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON saved_indicators(ticker)")
-
         # --- SEEDS & DEFAULTS ---
 
         # SEED: Default Watchlist Folder

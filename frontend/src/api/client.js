@@ -70,7 +70,11 @@ export const marketApi = {
   getSavedIndicators: (ticker) => apiClient.get(`/api/indicators/${ticker}`),
   saveIndicator: (indicator) => apiClient.post('/api/indicators/', indicator),
   deleteIndicator: (id) => apiClient.delete(`/api/indicators/${id}`),
-  calculateIndicatorData: (ticker, id) => apiClient.get(`/api/indicators/${ticker}/calculate/${id}`),
+  
+  // --- ZERO-DISCREPANCY FIX ---
+  // On passe contextPeriod (ex: '1d', '1mo') en query param pour que le backend sache quelle densité de données charger
+  calculateIndicatorData: (ticker, id, contextPeriod) => apiClient.get(`/api/indicators/${ticker}/calculate/${id}?context_period=${contextPeriod || ''}`),
+  
   calculateSmartSMA: (t, ta, l) => apiClient.post('/api/indicators/smart/sma', { ticker: t, target_up_percent: ta, lookback_days: l }),
   calculateSmartEMA: (t, ta, l) => apiClient.post('/api/indicators/smart/ema', { ticker: t, target_up_percent: ta, lookback_days: l }),
   calculateSmartEnvelope: (t, ta, l) => apiClient.post('/api/indicators/smart/envelope', { ticker: t, target_inside_percent: ta, lookback_days: l }),

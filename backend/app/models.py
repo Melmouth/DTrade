@@ -30,32 +30,27 @@ class PortfolioItemRequest(BaseModel):
 # --- NEW: SHADOW BACK COMPUTE (SBC) MODELS ---
 
 class IndicatorParams(BaseModel):
-    """
-    Modèle flexible pour les paramètres d'indicateurs.
-    Permet des champs arbitraires (stdDev, multiplier, etc.) grâce à extra='allow'.
-    """
     period: Optional[int] = 20
-    
     class Config:
         extra = "allow" 
 
 class IndicatorSaveRequest(BaseModel):
-    """Payload pour la sauvegarde d'un indicateur"""
     ticker: str
-    type: str              # ex: "SMA", "BB", "RSI"
-    params: Dict[str, Any] # JSON d'objets params (period, color, etc.)
-    style: Dict[str, Any]  # ex: {color: "#...", lineWidth: 1}
-    granularity: str = "days" # "days" (Macro) ou "data" (Intraday)
-    name: Optional[str] = None # Nom personnalisé par l'utilisateur
+    type: str
+    params: Dict[str, Any]
+    style: Dict[str, Any]
+    granularity: str = "days"
+    period: str = "1mo"        # <--- NOUVEAU : Le contexte temporel de la création
+    name: Optional[str] = None
 
 class IndicatorDTO(BaseModel):
-    """Objet de transfert pour l'affichage liste des indicateurs"""
     id: int
     ticker: str
     type: str
     params: Dict[str, Any]
     style: Dict[str, Any]
     granularity: str
+    period: str               # <--- NOUVEAU
     name: str
 
 # Structures pour les réponses de données calculées

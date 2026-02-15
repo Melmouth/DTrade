@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { marketApi } from '../api/client';
 
-export function useIndicatorManager(ticker) {
+export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT activePeriod
   // Liste des indicateurs (mélange Config + Data calculée)
   const [indicators, setIndicators] = useState([]);
   
   // État de chargement global (pour la liste initiale)
   const [isLoading, setIsLoading] = useState(false);
+
+  // Ref pour éviter les boucles infinies si activePeriod change trop vite
+  const loadedPeriodRef = useRef(null);
 
   // --- 1. CHARGEMENT (Initial & Refresh) ---
   const loadIndicators = useCallback(async () => {
@@ -32,8 +35,9 @@ export function useIndicatorManager(ticker) {
       // B. Lancement des calculs en parallèle (Shadow Compute)
       savedConfigs.forEach(async (ind) => {
         try {
-          // Appel au Moteur Python pour ce spécifique ID
-          const dataRes = await marketApi.calculateIndicatorData(ticker, ind.id);
+          // Appel au Moteur Python pour ce spécifique ID avec le CONTEXTE ACTUEL
+          // Si l'indicateur est en mode 'data' (Chart), il a besoin du activePeriod pour être juste.
+          const dataRes = await marketApi.calculateIndicatorData(ticker, ind.id, activePeriod);
           
           // Mise à jour ciblée de l'indicateur une fois les données reçues
           setIndicators(prev => prev.map(p => {
@@ -52,12 +56,16 @@ export function useIndicatorManager(ticker) {
       console.error("[SBC] Failed to load indicators list", err);
       setIsLoading(false);
     }
-  }, [ticker]);
+  }, [ticker, activePeriod]); // Dépendance activePeriod ajoutée
 
-  // Recharger quand le ticker change
+  // Recharger quand le ticker change OU la période change
   useEffect(() => {
-    setIndicators([]); // Reset visuel immédiat
-    loadIndicators();
+    // Petit debounce pour éviter de spammer si l'utilisateur change de TF rapidement
+    const t = setTimeout(() => {
+        setIndicators([]); // Reset visuel immédiat (optionnel, peut être enlevé si on veut garder l'ancien état pdt le loading)
+        loadIndicators();
+    }, 100);
+    return () => clearTimeout(t);
   }, [loadIndicators]);
 
   // --- 2. ACTIONS CRUD ---
@@ -73,9 +81,11 @@ export function useIndicatorManager(ticker) {
       style: { 
           color: newIndConfig.color, 
           lineWidth: newIndConfig.lineWidth || 2,
-          lineStyle: newIndConfig.lineStyle || 0 
+          lineStyle: newIndConfig.lineStyle || 0,
+          type: newIndConfig.style?.type || 'LINE' // Assurance type
       }, 
       granularity: newIndConfig.granularity || 'days',
+      period: activePeriod, // On sauvegarde le contexte de création
       name: newIndConfig.name
     };
 
@@ -88,8 +98,8 @@ export function useIndicatorManager(ticker) {
       const tempIndState = { ...savedInd, visible: true, data: null, isFetching: true };
       setIndicators(prev => [...prev, tempIndState]);
 
-      // 4. Demande de Calcul immédiat (Compute)
-      const dataRes = await marketApi.calculateIndicatorData(ticker, savedInd.id);
+      // 4. Demande de Calcul immédiat (Compute) AVEC CONTEXTE
+      const dataRes = await marketApi.calculateIndicatorData(ticker, savedInd.id, activePeriod);
       
       // 5. Injection des données reçues
       setIndicators(prev => prev.map(i => 
@@ -100,7 +110,7 @@ export function useIndicatorManager(ticker) {
       console.error("[SBC] Add indicator failed", e);
       // Rollback en cas d'erreur (optionnel, ici on laisse l'erreur visible console)
     }
-  }, [ticker]);
+  }, [ticker, activePeriod]);
 
   const removeIndicator = useCallback(async (id) => {
     // 1. Suppression Optimiste (UI instantanée)
