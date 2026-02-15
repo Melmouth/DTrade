@@ -24,6 +24,8 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
       // On initialise l'état avec les configs (sans data lourde pour l'instant)
       const initialState = savedConfigs.map(ind => ({
         ...ind,
+        // FIX COLOR: On remonte la couleur du style backend vers la racine
+        color: ind.style?.color || ind.color || '#00f3ff',
         visible: true,    // État visuel local
         data: null,       // Placeholder pour les données
         isFetching: true  // Loader individuel
@@ -94,8 +96,17 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
       const saveRes = await marketApi.saveIndicator(payload);
       const savedInd = saveRes.data;
 
+      // FIX COLOR: On force la couleur locale pour l'affichage optimiste
+      const colorToUse = savedInd.style?.color || newIndConfig.color || '#00f3ff';
+
       // 3. Ajout Optimiste à la liste (avec loader)
-      const tempIndState = { ...savedInd, visible: true, data: null, isFetching: true };
+      const tempIndState = { 
+        ...savedInd, 
+        color: colorToUse, // Application du fix
+        visible: true, 
+        data: null, 
+        isFetching: true 
+      };
       setIndicators(prev => [...prev, tempIndState]);
 
       // 4. Demande de Calcul immédiat (Compute) AVEC CONTEXTE

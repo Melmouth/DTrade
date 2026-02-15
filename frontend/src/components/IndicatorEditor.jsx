@@ -69,7 +69,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
             setIsVisualLoading(false);
         });
 
-    }, 100); // 100ms Debounce (plus doux que 50ms)
+    }, 10); // 10ms Debounce (plus doux que 50ms)
 
     return () => {
         if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
