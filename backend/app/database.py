@@ -9,7 +9,7 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
-        # --- EXISTING WATCHLIST TABLES ---
+        # --- EXISTING WATCHLIST TABLES (SIDEBAR) ---
         conn.execute("CREATE TABLE IF NOT EXISTS watchlist (id INTEGER PRIMARY KEY, ticker TEXT UNIQUE)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS portfolios (
@@ -26,7 +26,7 @@ def init_db():
             )
         """)
 
-        # --- NEW: DPMS FINANCIAL TABLES (EPIC 1) ---
+        # --- DPMS FINANCIAL TABLES (TRADING CORE) ---
         
         # 1. ACCOUNTS (Trésorerie)
         conn.execute("""
@@ -61,6 +61,26 @@ def init_db():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # --- NEW: SHADOW BACK COMPUTE (SBC) TABLES ---
+        # Persistance des configurations d'indicateurs
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS saved_indicators (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                type TEXT NOT NULL,       -- "SMA", "BB", "RSI"...
+                name TEXT,                -- Nom custom (ex: "Ma Moyenne Mobile")
+                params TEXT NOT NULL,     -- Stocké en JSON String (ex: '{"period": 20}')
+                style TEXT NOT NULL,      -- Stocké en JSON String (ex: '{"color": "#ff0000"}')
+                granularity TEXT DEFAULT 'days', -- "days" ou "data"
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Index pour récupération rapide par ticker lors du chargement du chart
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON saved_indicators(ticker)")
+
+        # --- SEEDS & DEFAULTS ---
 
         # SEED: Default Watchlist Folder
         try:

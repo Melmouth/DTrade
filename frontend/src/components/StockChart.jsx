@@ -4,7 +4,7 @@ import {
   ColorType, 
   CrosshairMode, 
   CandlestickSeries, 
-  HistogramSeries,
+  HistogramSeries, 
   LineSeries 
 } from 'lightweight-charts';
 import { BarChart2, TrendingUp, Zap, MoreHorizontal, Ruler } from 'lucide-react'; 
@@ -34,7 +34,6 @@ const TOGGLES_CONFIG = [
   { key: 'priceLines', label: 'LNS', type: 'ui', icon: MoreHorizontal, tooltip: 'Lignes de prix' },
 ];
 
-// AJOUT DE LA PROP isMarketOpen (défaut false pour sécurité)
 export default function StockChart({ 
   data, 
   dailyData, 
@@ -45,7 +44,7 @@ export default function StockChart({
   indicators = [], 
   previewSeries = null, 
   livePrice = null, 
-  isMarketOpen = false // <--- FIX HERE
+  isMarketOpen = false 
 }) {
   const chartContainerRef = useRef();
   const chartInstance = useRef(null);
@@ -134,8 +133,7 @@ export default function StockChart({
 
     // --- GESTION DU CROSSHAIR (Survol) ---
     chart.subscribeCrosshairMove((param) => {
-      if (!param.point || !param.time || param.point.x < 0 || param.point.y < 0) return;
-      if (!mainSeriesRef.current || !volumeSeriesRef.current) return;
+      if (!param.point || !mainSeriesRef.current) return; // FIX: pas de check param.time strict pour éviter saut
 
       const mainData = param.seriesData.get(mainSeriesRef.current);
       const volumeData = param.seriesData.get(volumeSeriesRef.current);
@@ -155,7 +153,7 @@ export default function StockChart({
       }
 
       // Ruler Logic
-      if (measurementRef.current.active && mainSeriesRef.current) {
+      if (measurementRef.current.active && mainSeriesRef.current && param.point) {
         const currentPrice = mainSeriesRef.current.coordinateToPrice(param.point.y);
         if (currentPrice !== null) {
             const startPrice = measurementRef.current.startPrice;
@@ -239,55 +237,44 @@ export default function StockChart({
       if (data.length === 0) shouldZoomRef.current = true;
   }, [data.length]);
 
-  // --- 3. LOGIC : RENDERING DES DONNÉES (OPTIMISÉ) ---
+  // --- 3. LOGIC : RENDERING DES DONNÉES (CORRIGÉ & SIMPLIFIÉ) ---
   useEffect(() => {
     // SECURITY CHECK
     if (!chartInstance.current) return;
     if (!Array.isArray(data) || data.length === 0) return;
 
     const chart = chartInstance.current;
-    const mainData = [];
-    const volumeData = [];
 
-    // DATA SANITIZATION (CORRECTIF ICI)
-    for(let i=0; i<data.length; i++) {
-        const d = data[i];
-        if (!d || !d.date) continue;
-        
-        // Conversion Date Safe
-        const time = new Date(d.date).getTime() / 1000;
-        if (isNaN(time)) continue;
+    // 1. PREPARATION DES DONNÉES (SORT ONLY)
+    // On nettoie et on trie simplement. Pas de "Sanitize" complexe.
+    const validData = data
+        .filter(d => d.date) // On garde seulement si date existe
+        .map(d => ({
+            time: new Date(d.date).getTime() / 1000,
+            open: Number(d.open) || 0,
+            high: Number(d.high) || 0,
+            low: Number(d.low) || 0,
+            close: Number(d.close) || 0,
+            value: Number(d.close) || 0 // Pour le mode Ligne
+        }))
+        .sort((a, b) => a.time - b.time); // Tri vital pour Lightweight Charts
 
-        // Valeurs Safe : On force la conversion en Number et on met 0 si échec (NaN)
-        // Cela empêche lightweight-charts de crasher sur "Received NaN"
-        const open = Number(d.open) || 0;
-        const high = Number(d.high) || 0;
-        const low = Number(d.low) || 0;
-        const close = Number(d.close) || 0;
-        const volume = Number(d.volume) || 0;
-
-        const isUp = close >= open;
-        volumeData.push({
-            time,
-            value: volume,
-            color: isUp ? 'rgba(0, 255, 65, 0.15)' : 'rgba(255, 0, 60, 0.15)',
-        });
-
-        if (chartType === 'candle') {
-            mainData.push({ time, open, high, low, close });
-        } else {
-            mainData.push({ time, value: close });
-        }
-    };
+    const volumeData = validData.map(d => {
+        // On retrouve le volume original (car map précédent l'a perdu ou non typé)
+        const vol = Number(data.find(x => new Date(x.date).getTime()/1000 === d.time)?.volume || 0);
+        return {
+            time: d.time,
+            value: vol,
+            color: d.close >= d.open ? 'rgba(0, 255, 65, 0.15)' : 'rgba(255, 0, 60, 0.15)',
+        };
+    });
 
     // A. GESTION SÉRIE PRINCIPALE
-    // On vérifie si on doit changer le type de graphique (Candle <-> Line)
     if (mainSeriesRef.current && mainSeriesRef.current._chartType !== chartType) {
         try { chart.removeSeries(mainSeriesRef.current); } catch(e){}
         mainSeriesRef.current = null;
     }
 
-    // Création si inexistante
     if (!mainSeriesRef.current) {
         const commonOptions = {
             priceLineVisible: visibility.priceLines,
@@ -305,24 +292,25 @@ export default function StockChart({
                 color: '#00f3ff', lineWidth: 2, 
             });
         }
-        mainSeriesRef.current._chartType = chartType; // Tag pour s'en souvenir
+        mainSeriesRef.current._chartType = chartType; 
     }
 
-    // MISE À JOUR DONNÉES (Rapide)
-    mainSeriesRef.current.setData(mainData);
-    if (mainData.length > 0) {
-        lastCandleRef.current = { ...mainData[mainData.length - 1] };
+    mainSeriesRef.current.setData(validData);
+    if (validData.length > 0) {
+        lastCandleRef.current = { ...validData[validData.length - 1] };
     }
 
-    // Mise à jour Volume
-    if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
+    if (volumeSeriesRef.current) {
+        volumeSeriesRef.current.setData(volumeData);
+        volumeSeriesRef.current.applyOptions({ visible: visibility.volume });
+    }
 
-    // B. GESTION INDICATEURS (Update Différentiel)
+    // B. GESTION INDICATEURS (SIMPLIFIÉE)
     let indicatorsToShow = indicators.filter(i => i.visible !== false);
     const activeIds = new Set(indicatorsToShow.map(i => i.id));
     if (previewSeries) activeIds.add(previewSeries.id);
 
-    // 1. Suppression des vieux indicateurs
+    // Suppression des vieux indicateurs
     indicatorSeriesRef.current.forEach((val, id) => {
       if (!activeIds.has(id)) {
         try {
@@ -333,106 +321,117 @@ export default function StockChart({
       }
     });
 
-    // Helper de dessin intelligent
-    const drawIndicator = (id, type, color, calculatedData) => {
-         // Si le type change (Band <-> Line), on détruit l'ancien
-         if (indicatorSeriesRef.current.has(id)) {
-            const old = indicatorSeriesRef.current.get(id);
-            const wasBand = Array.isArray(old);
-            const isBand = type === 'BAND';
-            if (wasBand !== isBand) {
-                try {
-                    if (wasBand) old.forEach(s => chart.removeSeries(s));
-                    else chart.removeSeries(old);
-                } catch(e) {}
-                indicatorSeriesRef.current.delete(id);
-            }
-         }
+    // Helper de dessin
+    const renderInd = (ind) => {
+        let points = null;
 
-         const indOptions = {
+        // --- SOURCE DE DONNÉES ---
+        // Cas A : Backend (SBC) - Déjà calculé et stocké dans ind.data
+        if (ind.data && (Array.isArray(ind.data) || typeof ind.data === 'object')) {
+            points = ind.data;
+        } 
+        // Cas B : Frontend (Preview / Fallback) - Calcul local
+        else {
+            const config = {
+                id: ind.type,
+                params: ind.params || { period: ind.param || 20 },
+                granularity: ind.granularity || 'days'
+            };
+            points = calculateIndicator(config, data, dailyData);
+        }
+
+        if (!points) return;
+
+        // --- RENDU ---
+        let series = indicatorSeriesRef.current.get(ind.id);
+        
+        // Détection auto si c'est une bande (via style OU structure de données)
+        // Structure Backend Bandes: Array d'objets {time, upper, lower, basis}
+        // Structure Frontend Bandes: Objet { upper: [], lower: [], basis: [] }
+        const isBandStructure = !Array.isArray(points) || (points.length > 0 && points[0].upper !== undefined);
+        const isBand = ind.style === 'BAND' || isBandStructure;
+
+        // Nettoyage si changement de type
+        if (series && Array.isArray(series) !== isBand) {
+             (Array.isArray(series) ? series : [series]).forEach(s => chart.removeSeries(s));
+             series = null;
+             indicatorSeriesRef.current.delete(ind.id);
+        }
+
+        const indOptions = {
              priceLineVisible: visibility.priceLines,
              lastValueVisible: true,
              priceLineSource: 1, 
              priceLineStyle: 2, 
-         };
+        };
 
-         if (type === 'BAND') {
-             let seriesSet = indicatorSeriesRef.current.get(id);
-             // Création
-             if (!seriesSet) {
-                 const sUpper = chart.addSeries(LineSeries, { color: color, lineWidth: 1, lineType: 2, priceLineVisible: false, lastValueVisible: false }); 
-                 const sLower = chart.addSeries(LineSeries, { color: color, lineWidth: 1, lineType: 2, priceLineVisible: false, lastValueVisible: false }); 
-                 const sBasis = chart.addSeries(LineSeries, { color: color, lineWidth: 1, lineStyle: 2, lineVisible: true, ...indOptions }); 
-                 seriesSet = [sUpper, sLower, sBasis];
-                 indicatorSeriesRef.current.set(id, seriesSet);
+        if (isBand) {
+             // 1. Initialisation Séries Bandes
+             if (!series) {
+                 const sUpper = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 1, lineType: 2, priceLineVisible: false, lastValueVisible: false }); 
+                 const sLower = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 1, lineType: 2, priceLineVisible: false, lastValueVisible: false }); 
+                 const sBasis = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 1, lineStyle: 2, lineVisible: true, ...indOptions }); 
+                 series = [sUpper, sLower, sBasis];
+                 indicatorSeriesRef.current.set(ind.id, series);
              } else {
-                 // Update Style
-                 seriesSet.forEach(s => s.applyOptions({ color: color }));
-                 seriesSet[2].applyOptions({ priceLineVisible: visibility.priceLines });
+                 series.forEach(s => s.applyOptions({ color: ind.color }));
+                 series[2].applyOptions({ priceLineVisible: visibility.priceLines });
              }
 
-             // Update Data
-             if (calculatedData && calculatedData.upper) {
-                seriesSet[0].setData(calculatedData.upper);
-                seriesSet[1].setData(calculatedData.lower);
-                seriesSet[2].setData(calculatedData.basis);
+             // 2. Normalisation des données (Backend vs Frontend format)
+             let uData=[], lData=[], bData=[];
+             
+             if (Array.isArray(points)) {
+                 // Format Backend: [{time, upper, lower, basis}, ...]
+                 // On splitte en 3 tableaux triés
+                 const sorted = [...points].sort((a,b) => a.time - b.time);
+                 uData = sorted.map(p => ({ time: p.time, value: p.upper })).filter(p => p.value != null);
+                 lData = sorted.map(p => ({ time: p.time, value: p.lower })).filter(p => p.value != null);
+                 bData = sorted.map(p => ({ time: p.time, value: p.basis })).filter(p => p.value != null);
+             } else {
+                 // Format Frontend: { upper: [...], lower: [...], basis: [...] }
+                 // Déjà formaté en {time, value} par calculateIndicator
+                 uData = points.upper || [];
+                 lData = points.lower || [];
+                 bData = points.basis || [];
              }
 
-         } else {
-             let series = indicatorSeriesRef.current.get(id);
-             // Création
+             series[0].setData(uData);
+             series[1].setData(lData);
+             series[2].setData(bData);
+
+        } else {
+             // 1. Initialisation Série Ligne
              if (!series) {
                  series = chart.addSeries(LineSeries, { 
-                   color: color, lineWidth: 2, 
+                   color: ind.color, lineWidth: 2, 
                    crosshairMarkerVisible: false,
                    ...indOptions 
                  });
-                 indicatorSeriesRef.current.set(id, series);
+                 indicatorSeriesRef.current.set(ind.id, series);
              } else {
-                 // Update Style
-                 series.applyOptions({ color: color, priceLineVisible: visibility.priceLines });
+                 series.applyOptions({ color: ind.color, priceLineVisible: visibility.priceLines });
              }
-             // Update Data
-             if (calculatedData) series.setData(calculatedData);
-         }
+
+             // 2. Normalisation
+             let lineData = [];
+             if (Array.isArray(points)) {
+                 // Format Backend ou Frontend (même structure {time, value})
+                 lineData = [...points].sort((a,b) => a.time - b.time);
+             }
+             
+             series.setData(lineData);
+        }
     };
 
-    // 2. Calcul et Update
-    indicatorsToShow.forEach(ind => {
-      if (previewSeries && ind.id === previewSeries.id) return;
-      
-      const config = {
-          id: ind.type,
-          params: ind.params || { period: ind.param || 20 },
-          granularity: ind.granularity || 'days'
-      };
-
-      const dataPoints = calculateIndicator(config, data, dailyData);
-      const style = ind.style || 'LINE';
-      if (dataPoints) drawIndicator(ind.id, style, ind.color, dataPoints);
-    });
-
-    // Preview Editor
-    if (previewSeries) {
-        const style = previewSeries.style || 'LINE';
-        drawIndicator(previewSeries.id, style, previewSeries.color, previewSeries.data);
-    }
-
-    // Legend Init
-    if (mainData.length > 0) {
-       const last = mainData[mainData.length - 1];
-       const val = last.close !== undefined ? last.close : last.value;
-       const isUp = (last.close || val) >= (last.open || val);
-       setLegend({
-         open: last.open || val, high: last.high || val, low: last.low || val, close: val,
-         volume: volumeData[volumeData.length-1]?.value || 0,
-         color: isUp ? 'text-neon-green' : 'text-neon-red'
-       });
-    }
+    // Boucle de rendu
+    indicatorsToShow.forEach(renderInd);
+    if (previewSeries) renderInd(previewSeries);
 
     // Zoom Handling
-    if (shouldZoomRef.current) {
-        const totalPoints = mainData.length;
+    if (shouldZoomRef.current && validData.length > 0) {
+        // ... (Logique Zoom inchangée pour gain de place)
+        const totalPoints = validData.length;
         let visiblePoints = totalPoints; 
         if (meta?.period) {
              switch (meta.period) {
@@ -447,7 +446,7 @@ export default function StockChart({
                 case 'ytd':
                     const currentYear = new Date().getFullYear();
                     const startOfYear = new Date(currentYear, 0, 1).getTime() / 1000;
-                    const countYTD = data.filter(d => (new Date(d.date).getTime() / 1000) >= startOfYear).length;
+                    const countYTD = validData.filter(d => d.time >= startOfYear).length;
                     visiblePoints = countYTD > 0 ? countYTD : 252;
                     break;
                 case 'max': default: visiblePoints = totalPoints;
@@ -455,9 +454,11 @@ export default function StockChart({
         }
         if (totalPoints > visiblePoints && visiblePoints > 0) {
             const fromIndex = totalPoints - visiblePoints;
-            const fromTime = new Date(data[fromIndex].date).getTime() / 1000;
-            const toTime = new Date(data[totalPoints - 1].date).getTime() / 1000;
-            chart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+            const fromTime = validData[fromIndex]?.time;
+            const toTime = validData[totalPoints - 1]?.time;
+            if (fromTime && toTime) {
+                chart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+            }
         } else {
             chart.timeScale().fitContent();
         }
@@ -468,22 +469,10 @@ export default function StockChart({
 
   // --- 4. LOGIC : LIVE UPDATE ---
   useEffect(() => {
-    // SÉCURITÉ SUPPLÉMENTAIRE ICI : On vérifie que livePrice est un nombre valide
-    if (
-        !livePrice || 
-        isNaN(Number(livePrice)) || 
-        !mainSeriesRef.current || 
-        !lastCandleRef.current
-    ) return;
-
-    // --- FIX FLICKERING : GUARD CLAUSE ---
-    // Si le marché est fermé, on ne touche PAS au graphique.
-    // L'historique (snapshot) fait foi.
+    if (!livePrice || isNaN(Number(livePrice)) || !mainSeriesRef.current || !lastCandleRef.current) return;
     if (!isMarketOpen) return; 
 
     const current = lastCandleRef.current;
-    
-    // On re-force le typage Number ici aussi
     const safePrice = Number(livePrice);
     
     const updatedCandle = {
