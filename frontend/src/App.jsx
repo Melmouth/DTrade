@@ -87,14 +87,23 @@ function App() {
   const isConnected = !error && streamData !== null;
 
   // --- 4. GESTION DES INDICATEURS ---
+  // FIX ZERO-DISCREPANCY: Injection de currentPeriod dans le hook
   const { 
     indicators: currentIndicators, 
-    addIndicator: handleAddIndicator, 
+    addIndicator: hookAddIndicator, 
     removeIndicator, 
     toggleVisibility: toggleIndicatorVisibility, 
     updateIndicator: hookUpdateIndicator, 
     nukeIndicators 
-  } = useIndicatorManager(ticker);
+  } = useIndicatorManager(ticker, currentPeriod); 
+
+  // Wrapper pour être sûr que l'ajout prend bien le contexte (même si le hook le fait déjà en interne)
+  const handleAddIndicator = (newIndConfig) => {
+      hookAddIndicator({
+          ...newIndConfig,
+          period: currentPeriod 
+      });
+  };
 
   // --- 5. LOGIQUE MÉTIER ---
   useEffect(() => { loadSidebar(); }, []);
@@ -301,7 +310,13 @@ function App() {
                     {/* CONTROLS BAR */}
                     <div className="flex items-center justify-between bg-slate-900/40 border border-slate-800 p-3 backdrop-blur-sm relative z-20">
                         <div className="absolute top-0 left-0 w-1 h-full bg-neon-blue"></div>
-                        <IndicatorMenu ticker={ticker} onAddIndicator={handleAddIndicator} />
+                        <IndicatorMenu 
+                            ticker={ticker} 
+                            chartData={chartData} 
+                            dailyData={dailyData} 
+                            onAddIndicator={handleAddIndicator} 
+                            onPreview={(previewData) => setPreviewSeries(previewData)} 
+                        />
                         <AddToWatchlist ticker={ticker} watchlists={sidebarData} onUpdate={loadSidebar} />
                     </div>
 
@@ -309,7 +324,6 @@ function App() {
                     {currentIndicators.length > 0 && (
                         <div className="flex flex-wrap gap-3">
                         {currentIndicators.map(ind => {
-                            // CORRECTION COULEUR: On regarde à la racine OU dans style
                             const displayColor = ind.color || ind.style?.color || '#00f3ff';
                             
                             return (
@@ -352,6 +366,7 @@ function App() {
                                 indicator={editingIndicator}
                                 chartData={chartData}
                                 dailyData={dailyData}
+                                activePeriod={currentPeriod} // <--- PASSAGE DU CONTEXTE
                                 onClose={handleEditorClose}
                                 onSave={updateIndicator}
                                 onPreview={(previewData) => setPreviewSeries(previewData)}

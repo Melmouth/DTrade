@@ -11,6 +11,8 @@ import { BarChart2, TrendingUp, Zap, MoreHorizontal, Ruler } from 'lucide-react'
 
 // --- CHANGEMENT MAJEUR : ON IMPORTE LE REGISTRE AU LIEU DES FONCTIONS MATHS ---
 import { calculateIndicator } from '../indicators/registry';
+// --- FIX ZERO-DISCREPANCY : Import du formatter d'hydratation ---
+import { hydrateBackendData } from '../utils/calculations/formatters'; 
 
 // --- CONFIGURATION ---
 const PERIODS = [
@@ -133,7 +135,7 @@ export default function StockChart({
 
     // --- GESTION DU CROSSHAIR (Survol) ---
     chart.subscribeCrosshairMove((param) => {
-      if (!param.point || !mainSeriesRef.current) return; // FIX: pas de check param.time strict pour éviter saut
+      if (!param.point || !mainSeriesRef.current) return; 
 
       const mainData = param.seriesData.get(mainSeriesRef.current);
       const volumeData = param.seriesData.get(volumeSeriesRef.current);
@@ -246,7 +248,6 @@ export default function StockChart({
     const chart = chartInstance.current;
 
     // 1. PREPARATION DES DONNÉES (SORT ONLY)
-    // On nettoie et on trie simplement. Pas de "Sanitize" complexe.
     const validData = data
         .filter(d => d.date) // On garde seulement si date existe
         .map(d => ({
@@ -305,7 +306,7 @@ export default function StockChart({
         volumeSeriesRef.current.applyOptions({ visible: visibility.volume });
     }
 
-    // B. GESTION INDICATEURS (SIMPLIFIÉE)
+    // B. GESTION INDICATEURS (SIMPLIFIÉE & CORRIGÉE)
     let indicatorsToShow = indicators.filter(i => i.visible !== false);
     const activeIds = new Set(indicatorsToShow.map(i => i.id));
     if (previewSeries) activeIds.add(previewSeries.id);
@@ -328,7 +329,9 @@ export default function StockChart({
         // --- SOURCE DE DONNÉES ---
         // Cas A : Backend (SBC) - Déjà calculé et stocké dans ind.data
         if (ind.data && (Array.isArray(ind.data) || typeof ind.data === 'object')) {
-            points = ind.data;
+            // FIX ZERO-DISCREPANCY: On hydrate pour aligner la granularité
+            // Si data est sparse (Daily) et chart est dense (Intraday), on crée les steps.
+            points = hydrateBackendData(ind.data, data, ind.granularity);
         } 
         // Cas B : Frontend (Preview / Fallback) - Calcul local
         else {
@@ -346,8 +349,6 @@ export default function StockChart({
         let series = indicatorSeriesRef.current.get(ind.id);
         
         // Détection auto si c'est une bande (via style OU structure de données)
-        // Structure Backend Bandes: Array d'objets {time, upper, lower, basis}
-        // Structure Frontend Bandes: Objet { upper: [], lower: [], basis: [] }
         const isBandStructure = !Array.isArray(points) || (points.length > 0 && points[0].upper !== undefined);
         const isBand = ind.style === 'BAND' || isBandStructure;
 
@@ -378,19 +379,15 @@ export default function StockChart({
                  series[2].applyOptions({ priceLineVisible: visibility.priceLines });
              }
 
-             // 2. Normalisation des données (Backend vs Frontend format)
+             // 2. Normalisation des données
              let uData=[], lData=[], bData=[];
              
              if (Array.isArray(points)) {
-                 // Format Backend: [{time, upper, lower, basis}, ...]
-                 // On splitte en 3 tableaux triés
                  const sorted = [...points].sort((a,b) => a.time - b.time);
                  uData = sorted.map(p => ({ time: p.time, value: p.upper })).filter(p => p.value != null);
                  lData = sorted.map(p => ({ time: p.time, value: p.lower })).filter(p => p.value != null);
                  bData = sorted.map(p => ({ time: p.time, value: p.basis })).filter(p => p.value != null);
              } else {
-                 // Format Frontend: { upper: [...], lower: [...], basis: [...] }
-                 // Déjà formaté en {time, value} par calculateIndicator
                  uData = points.upper || [];
                  lData = points.lower || [];
                  bData = points.basis || [];
@@ -416,7 +413,6 @@ export default function StockChart({
              // 2. Normalisation
              let lineData = [];
              if (Array.isArray(points)) {
-                 // Format Backend ou Frontend (même structure {time, value})
                  lineData = [...points].sort((a,b) => a.time - b.time);
              }
              
@@ -430,7 +426,6 @@ export default function StockChart({
 
     // Zoom Handling
     if (shouldZoomRef.current && validData.length > 0) {
-        // ... (Logique Zoom inchangée pour gain de place)
         const totalPoints = validData.length;
         let visiblePoints = totalPoints; 
         if (meta?.period) {
@@ -498,7 +493,7 @@ export default function StockChart({
     } else {
         setLegend(prev => ({ ...prev, close: safePrice }));
     }
-  }, [livePrice, chartType, isMarketOpen]); // <-- Dépendance ajoutée
+  }, [livePrice, chartType, isMarketOpen]); 
   
   // Visibility changes for Volume
   useEffect(() => {

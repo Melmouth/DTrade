@@ -31,12 +31,8 @@ def _format_df_to_list(df):
         })
     return res
 
-# --- SHARED SERIALIZER (NOUVEAU) ---
+# --- SHARED SERIALIZER ---
 def _serialize_company_profile(raw_info: dict) -> dict:
-    """
-    Transforme les données brutes YFinance en contrat de données Frontend.
-    Partagé par get_full_snapshot et get_company_profile.
-    """
     if not raw_info: return {}
     def g(k, d=None): return raw_info.get(k, d)
 
@@ -84,26 +80,41 @@ def _serialize_company_profile(raw_info: dict) -> dict:
         }
     }
 
+# --- CENTRALIZED MAPPING LOGIC (CRITIQUE POUR HARMONISATION) ---
+def resolve_fetch_params(view_period: str):
+    """
+    Définit QUOI charger chez Yahoo en fonction de la vue graphique.
+    Source de vérité unique pour le Frontend et le Backend Compute.
+    """
+    chart_fetch_period = "max"
+    chart_interval = "1d"
+    
+    if view_period == "1d":
+        # Pour voir 1 jour, on charge 5 à 7 jours en 1m pour avoir de l'historique intraday
+        # Cela permet aux indicateurs (EMA, RSI) de s'initialiser correctement sur les bougies précédentes
+        chart_fetch_period = "5d" 
+        chart_interval = "1m"
+    elif view_period == "5d":
+        chart_fetch_period = "5d"
+        chart_interval = "5m" # ou 15m selon préférence
+    elif view_period == "1mo":
+        chart_fetch_period = "1mo"
+        chart_interval = "1h" # ou 30m
+    elif view_period == "3mo":
+        chart_fetch_period = "3mo"
+        chart_interval = "1d" # Passage en daily pour la lisibilité
+    elif view_period in ["6mo", "ytd", "1y", "2y", "5y", "max"]:
+        chart_fetch_period = view_period if view_period != "ytd" else "1y"
+        chart_interval = "1d"
+        
+    return chart_fetch_period, chart_interval
+
 # --- LAYER 1 : STATIC DATA (Cached) ---
 @lru_cache(maxsize=32)
 def _fetch_heavy_data(ticker: str, period: str, time_hash: int):
     try:
-        # ... (Logique de choix de période inchangée) ...
-        chart_fetch_period = "max"
-        chart_interval = "1d"
-        
-        if period == "1d":
-            chart_fetch_period = "7d"
-            chart_interval = "1m"
-        elif period == "5d":
-            chart_fetch_period = "5d"
-            chart_interval = "5m"
-        elif period == "7d":
-            chart_fetch_period = "7d"
-            chart_interval = "1m"
-        elif period in ["1mo", "3mo"]:
-            chart_fetch_period = period
-            chart_interval = "1h"
+        # Utilisation de la logique centralisée
+        chart_fetch_period, chart_interval = resolve_fetch_params(period)
 
         hist_main = provider.fetch_history(ticker, chart_fetch_period, chart_interval)
         info = provider.fetch_info(ticker)
@@ -122,7 +133,7 @@ def _fetch_heavy_data(ticker: str, period: str, time_hash: int):
         return {
             "chart_data": chart_data,
             "daily_data": daily_data,
-            "raw_info": info, # On garde le raw ici pour le cache
+            "raw_info": info, 
             "meta": {"period": period, "interval": chart_interval}
         }
     except Exception as e:
@@ -146,16 +157,12 @@ def get_full_snapshot(ticker: str, period: str):
     # 3. Merge Intelligent
     chart = list(static["chart_data"])
     
-    # --- FIX FLICKERING ---
-    # On ne met à jour la dernière bougie avec le live price QUE si le marché est OUVERT.
-    # Si fermé, on garde la bougie historique (Settlement Price) sans la modifier.
     if chart and live["price"] > 0 and live.get("is_open"):
         last = chart[-1]
         last["close"] = live["price"]
         if live["price"] > last["high"]: last["high"] = live["price"]
         if live["price"] < last["low"]: last["low"] = live["price"]
     
-    # 4. Serialize Info (REFACTOR ICI : Appel du Shared Serializer)
     structured_info = _serialize_company_profile(static["raw_info"])
 
     return {
@@ -169,19 +176,14 @@ def get_full_snapshot(ticker: str, period: str):
         "info": structured_info 
     }
 
-@lru_cache(maxsize=16) # Petit cache pour éviter le spam sur la modale
+@lru_cache(maxsize=16) 
 def get_company_profile(ticker: str):
-    """
-    Récupère UNIQUEMENT les infos fondamentales (léger).
-    Utilise le même serializer que le snapshot.
-    """
     raw_info = provider.fetch_info(ticker)
     if not raw_info:
         return None
     return _serialize_company_profile(raw_info)
 
 def get_internal_history(ticker, days):
-    # ... (inchangé)
     end = datetime.now()
     start = end - timedelta(days=days+60)
     period_str = "2y" if days < 700 else "5y"

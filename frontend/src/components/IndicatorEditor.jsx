@@ -12,7 +12,7 @@ const COLORS = [
   '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
 ];
 
-export default function IndicatorEditor({ indicator, chartData, dailyData, onClose, onSave, onPreview }) {
+export default function IndicatorEditor({ indicator, chartData, dailyData, activePeriod, onClose, onSave, onPreview }) {
   const [activeTab, setActiveTab] = useState('MANUAL');
   const [isVisualLoading, setIsVisualLoading] = useState(false);
   const [isSmartComputing, setIsSmartComputing] = useState(false);
@@ -92,6 +92,8 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, onClo
           color, 
           type: definition.type === 'BAND' ? 'BAND' : 'LINE' 
       },
+      // SAUVEGARDE DU CONTEXTE TEMPOREL
+      period: activePeriod || '1mo', 
       smartParams: activeTab === 'SMART' ? { target: smartTarget, lookback: smartLookback } : indicator.smartParams
     });
     onClose();
