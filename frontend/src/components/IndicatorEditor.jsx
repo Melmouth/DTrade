@@ -1,3 +1,4 @@
+/* frontend/src/components/IndicatorEditor.jsx */
 import { useState, useEffect, useRef } from 'react';
 import { 
   X, Save, Activity, RotateCw, Palette, Layers, 
@@ -18,6 +19,12 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
   const [isVisualLoading, setIsVisualLoading] = useState(false);
   const [isSmartComputing, setIsSmartComputing] = useState(false);
 
+  // --- OPTIMISATION CRITIQUE : STATIC DATA SNAPSHOT ---
+  // On capture les données UNE FOIS à l'ouverture pour éviter que les mises à jour 
+  // WebSocket (tick par tick) ne déclenchent des re-calculs lourds dans le worker.
+  const staticChartData = useRef(chartData).current;
+  const staticDailyData = useRef(dailyData).current;
+
   // Configuration locale
   const [localParams, setLocalParams] = useState(indicator.params || {});
   const [color, setColor] = useState(indicator.color || indicator.style?.color || '#00f3ff');
@@ -34,18 +41,16 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
   useEffect(() => {
     if (!definition) return;
 
-    // NOTE: On ne set PAS isVisualLoading(true) ici.
-    // Cela causerait un double-render immédiat qui figerait le slider.
-
     const timer = setTimeout(async () => {
-        // On active le loading seulement au moment du calcul réel
         setIsVisualLoading(true);
         
         try {
+            // UTILISATION DES DONNÉES STATIQUES (Snapshot)
             const dataToPreview = await compute(
                 { id: indicator.type, params: localParams, granularity },
-                chartData,
-                dailyData
+                staticChartData, // <--- Données figées à l'ouverture
+                staticDailyData, // <--- Données figées à l'ouverture
+                true // isPreview = TRUE (Slicing activé côté worker)
             );
 
             if (dataToPreview) {
@@ -67,10 +72,13 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
             setIsVisualLoading(false);
         }
 
-    }, 40); // 40ms = Parfait équilibre. Le slider a le temps de bouger, le calcul suit juste après.
+    }, 40);
 
     return () => clearTimeout(timer);
-  }, [localParams, color, name, granularity, indicator.type, chartData, dailyData, definition, compute]);
+    
+    // NOTE IMPORTANTE : chartData et dailyData ont été RETIRÉS des dépendances
+    // pour ne recalculer que lors d'une interaction utilisateur (params, color, etc.)
+  }, [localParams, color, name, granularity, indicator.type, definition, compute]); 
 
   const handleParamChange = (key, value) => {
       setLocalParams(prev => ({ ...prev, [key]: value }));
