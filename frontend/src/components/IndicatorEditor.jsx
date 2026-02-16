@@ -3,7 +3,8 @@ import {
   X, Save, Activity, RotateCw, Palette, Layers, 
   CalendarClock, LineChart, Wand2, Settings2, Cpu 
 } from 'lucide-react';
-import { calculateIndicator, default as INDICATORS } from '../indicators/registry';
+import { default as INDICATORS } from '../indicators/registry';
+import { useIndicatorWorker } from '../hooks/useIndicatorWorker';
 
 const COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
@@ -18,7 +19,6 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
   const [isSmartComputing, setIsSmartComputing] = useState(false);
 
   // Configuration locale
-  // CORRECTION : On gère le cas où indicator.style contient la couleur
   const [localParams, setLocalParams] = useState(indicator.params || {});
   const [color, setColor] = useState(indicator.color || indicator.style?.color || '#00f3ff');
   const [name, setName] = useState(indicator.name);
@@ -28,53 +28,49 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
   const [smartLookback, setSmartLookback] = useState(indicator.smartParams?.lookback || 365);
 
   const definition = INDICATORS[indicator.type];
-  const calcTimeoutRef = useRef(null); // Pour le debounce
+  const { compute } = useIndicatorWorker();
 
-  // --- PREVIEW EFFECT (OPTIMISÉ) ---
+  // --- PREVIEW EFFECT (OPTIMISÉ 60FPS) ---
   useEffect(() => {
     if (!definition) return;
-    
-    // Annule le calcul précédent si on bouge vite le slider
-    if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
 
-    setIsVisualLoading(true);
+    // NOTE: On ne set PAS isVisualLoading(true) ici.
+    // Cela causerait un double-render immédiat qui figerait le slider.
 
-    calcTimeoutRef.current = setTimeout(() => {
-        // On sort le calcul du thread principal via Promise pour laisser l'UI respirer
-        new Promise((resolve) => {
-            const dataToPreview = calculateIndicator(
+    const timer = setTimeout(async () => {
+        // On active le loading seulement au moment du calcul réel
+        setIsVisualLoading(true);
+        
+        try {
+            const dataToPreview = await compute(
                 { id: indicator.type, params: localParams, granularity },
                 chartData,
                 dailyData
             );
-            resolve(dataToPreview);
-        }).then((dataToPreview) => {
+
             if (dataToPreview) {
                 onPreview({
                     ...indicator,
-                    // On force les props visuelles pour le preview immédiat
                     id: indicator.id || 'PREVIEW_TEMP', 
                     name, 
                     color, 
-                    style: definition.type === 'BAND' ? 'BAND' : 'LINE', // Force le style visuel
+                    style: definition.type === 'BAND' ? 'BAND' : 'LINE', 
                     granularity,
                     params: localParams,
-                    data: dataToPreview, // Données JS calculées
+                    data: dataToPreview, 
                     isPreview: true
                 });
             }
+        } catch (err) {
+            console.error("Worker Edit Error", err);
+        } finally {
             setIsVisualLoading(false);
-        }).catch(err => {
-            console.error("Calc error", err);
-            setIsVisualLoading(false);
-        });
+        }
 
-    }, 10); // 10ms Debounce (plus doux que 50ms)
+    }, 40); // 40ms = Parfait équilibre. Le slider a le temps de bouger, le calcul suit juste après.
 
-    return () => {
-        if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
-    };
-  }, [localParams, color, name, granularity, indicator.type, chartData, dailyData, definition]);
+    return () => clearTimeout(timer);
+  }, [localParams, color, name, granularity, indicator.type, chartData, dailyData, definition, compute]);
 
   const handleParamChange = (key, value) => {
       setLocalParams(prev => ({ ...prev, [key]: value }));
@@ -87,12 +83,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
       granularity,
       color,
       name,
-      // On s'assure que le style est sauvegardé pour le backend
-      style: { 
-          color, 
-          type: definition.type === 'BAND' ? 'BAND' : 'LINE' 
-      },
-      // SAUVEGARDE DU CONTEXTE TEMPOREL
+      style: { color, type: definition.type === 'BAND' ? 'BAND' : 'LINE' },
       period: activePeriod || '1mo', 
       smartParams: activeTab === 'SMART' ? { target: smartTarget, lookback: smartLookback } : indicator.smartParams
     });
@@ -208,7 +199,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
                     </div>
                 </div>
             )}
-            
+            {/* ... (Tab SMART reste identique) ... */}
             {activeTab === 'SMART' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                     <div className="bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-lg relative overflow-hidden">
