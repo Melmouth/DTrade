@@ -40,6 +40,20 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
 
   const calcTimeoutRef = useRef(null);
 
+  // --- OPTIMISATION CRITIQUE : STATIC DATA SNAPSHOT ---
+  // On stocke une référence aux données.
+  const staticChartData = useRef(chartData);
+  const staticDailyData = useRef(dailyData);
+
+  // On met à jour les données statiques UNIQUEMENT à l'ouverture du menu.
+  // Si le marché bouge pendant que le menu est ouvert, on s'en fiche pour la preview.
+  useEffect(() => {
+      if (isOpen) {
+          staticChartData.current = chartData;
+          staticDailyData.current = dailyData;
+      }
+  }, [isOpen]); // Dépendance unique : l'ouverture
+
   const allIndicators = useMemo(() => getAvailableIndicators(), []);
 
   const filteredIndicators = useMemo(() => {
@@ -59,18 +73,22 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
           return;
       }
 
-      if (!currentDef || !chartData) return;
+      if (!currentDef) return; 
+      // Note: On check si staticChartData.current existe dans le timeout
 
       // Reset du timer précédent
       if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
 
       calcTimeoutRef.current = setTimeout(async () => {
           try {
-              // On lance le calcul seulement après que l'utilisateur a ralenti son geste
+              // On utilise les données STATIC pour le calcul (pas de re-render sur tick)
+              if (!staticChartData.current || staticChartData.current.length === 0) return;
+
               const dataToPreview = await compute(
                   { id: selectedId, params: formParams, granularity },
-                  chartData,
-                  dailyData
+                  staticChartData.current, // <--- Données figées
+                  staticDailyData.current, // <--- Données figées
+                  true // isPreview = true pour le slicing
               );
 
               if (dataToPreview && onPreview) {
@@ -94,7 +112,8 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
 
       return () => { if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current); };
 
-  }, [selectedId, formParams, color, granularity, customName, chartData, dailyData, isOpen, compute]);
+  // CRITIQUE : chartData et dailyData RETIRÉS des dépendances
+  }, [selectedId, formParams, color, granularity, customName, isOpen, compute]);
 
 
   const resetMenu = () => {
@@ -135,7 +154,7 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
       if (mode === 'smart') {
         const decimalTarget = smartTarget / 100;
         let res;
-        // ... (Logique Smart inchangée)
+        
         if (selectedId === 'SMA') {
             res = await marketApi.calculateSmartSMA(ticker, decimalTarget, smartLookback);
             finalParams.period = res.data.optimal_n;
