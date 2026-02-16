@@ -7,7 +7,7 @@ import {
 // --- COMPONENTS ---
 import SettingsModal from './components/SettingsModal';
 import Sidebar from './components/Sidebar';
-import StockChart from './components/StockChart';
+import StockChart from './components/Chart';
 import AddToWatchlist from './components/AddToWatchlist';
 import IndicatorMenu from './components/IndicatorMenu';
 import IndicatorEditor from './components/IndicatorEditor';
