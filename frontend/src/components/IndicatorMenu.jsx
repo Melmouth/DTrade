@@ -4,7 +4,8 @@ import {
   Layers, BarChart3, Zap, Anchor, TrendingUp, ArrowLeft, CalendarClock, LineChart, Cpu 
 } from 'lucide-react';
 import { marketApi } from '../api/client';
-import { calculateIndicator, getAvailableIndicators, getIndicatorConfig, default as INDICATORS } from '../indicators/registry';
+import { getAvailableIndicators, getIndicatorConfig, default as INDICATORS } from '../indicators/registry';
+import { useIndicatorWorker } from '../hooks/useIndicatorWorker';
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6',
@@ -19,7 +20,6 @@ const CATEGORIES = [
   { id: 'GRAVITY', label: 'Gravity', icon: Anchor, color: 'text-neon-purple', borderColor: 'group-hover:border-neon-purple/50', desc: 'Stops, Reversals & Exits', filter: (tags) => tags.includes('Stop') || tags.includes('Reversal') }
 ];
 
-// AJOUT DES PROPS DE DONNÉES ET PREVIEW
 export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndicator, onPreview }) {
   const [isOpen, setIsOpen] = useState(false);
   
@@ -50,9 +50,10 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
 
   const currentDef = selectedId ? INDICATORS[selectedId] : null;
 
-  // --- EFFET DE PREVIEW (IDENTIQUE À L'ÉDITEUR) ---
+  const { compute } = useIndicatorWorker();
+
+  // --- EFFET DE PREVIEW (OPTIMISÉ WORKER 40ms) ---
   useEffect(() => {
-      // Si le menu est fermé ou pas d'indicateur sélectionné, on nettoie le preview
       if (!isOpen || !selectedId) {
           if (onPreview) onPreview(null);
           return;
@@ -60,41 +61,40 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
 
       if (!currentDef || !chartData) return;
 
-      // Debounce pour ne pas tuer le CPU
+      // Reset du timer précédent
       if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
 
-      calcTimeoutRef.current = setTimeout(() => {
-          requestAnimationFrame(() => {
-              try {
-                  const dataToPreview = calculateIndicator(
-                      { id: selectedId, params: formParams, granularity },
-                      chartData,
-                      dailyData
-                  );
+      calcTimeoutRef.current = setTimeout(async () => {
+          try {
+              // On lance le calcul seulement après que l'utilisateur a ralenti son geste
+              const dataToPreview = await compute(
+                  { id: selectedId, params: formParams, granularity },
+                  chartData,
+                  dailyData
+              );
 
-                  if (dataToPreview && onPreview) {
-                      onPreview({
-                          id: 'MENU_PREVIEW_TEMP', // ID Temporaire
-                          type: selectedId,
-                          name: customName || currentDef.name,
-                          color: color,
-                          style: currentDef.type === 'BAND' ? 'BAND' : 'LINE',
-                          granularity: granularity,
-                          params: formParams,
-                          data: dataToPreview,
-                          isPreview: true,
-                          visible: true
-                      });
-                  }
-              } catch (e) {
-                  console.error("Menu Preview Calc Error:", e);
+              if (dataToPreview && onPreview) {
+                  onPreview({
+                      id: 'MENU_PREVIEW_TEMP', 
+                      type: selectedId,
+                      name: customName || currentDef.name,
+                      color: color,
+                      style: currentDef.type === 'BAND' ? 'BAND' : 'LINE',
+                      granularity: granularity,
+                      params: formParams,
+                      data: dataToPreview,
+                      isPreview: true,
+                      visible: true
+                  });
               }
-          });
-      }, 50); // 50ms pour être très réactif
+          } catch (e) {
+              console.error("Menu Preview Worker Error:", e);
+          }
+      }, 40); // 40ms Debounce
 
       return () => { if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current); };
 
-  }, [selectedId, formParams, color, granularity, customName, chartData, dailyData, isOpen]);
+  }, [selectedId, formParams, color, granularity, customName, chartData, dailyData, isOpen, compute]);
 
 
   const resetMenu = () => {
@@ -167,14 +167,13 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
       onAddIndicator({
         id: Date.now(),
         type: selectedId,
-        // Style object standardisé pour le backend
         style: { 
             color: color, 
             type: currentDef.type === 'BAND' ? 'BAND' : 'LINE' 
         },
         params: finalParams,
         granularity: granularity,
-        color: color, // Fallback pour affichage immédiat
+        color: color,
         name: displayName,
         isSmart: mode === 'smart',
         smartParams: mode === 'smart' ? { target: smartTarget, lookback: smartLookback } : null

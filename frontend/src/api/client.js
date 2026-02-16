@@ -4,56 +4,7 @@ const API_BASE_URL = 'http://localhost:8000';
 
 const apiClient = axios.create({ baseURL: API_BASE_URL });
 
-// --- SONDE D'INTERCEPTION (DEBUG MODE) ---
-
-// 1. Sortie (Request)
-apiClient.interceptors.request.use(request => {
-    console.group(`🚀 TX: ${request.method?.toUpperCase()} ${request.url}`);
-    console.log('Headers:', request.headers);
-    if (request.data) {
-        console.log('Payload (Ce qui part au backend):', JSON.parse(JSON.stringify(request.data)));
-    }
-    if (request.params) {
-        console.log('Params:', request.params);
-    }
-    console.groupEnd();
-    return request;
-}, error => {
-    console.error('❌ TX Error:', error);
-    return Promise.reject(error);
-});
-
-// 2. Entrée (Response)
-apiClient.interceptors.response.use(response => {
-    console.group(`✅ RX: ${response.config.method?.toUpperCase()} ${response.config.url}`);
-    console.log('Status:', response.status);
-    console.log('Data (Ce qui revient du backend):', response.data);
-    
-    // Vérification Spécifique pour votre problème d'indicateurs
-    if (response.config.url?.includes('/calculate/') && Array.isArray(response.data)) {
-        console.table(response.data.slice(0, 5)); // Affiche les 5 premiers points pour check format
-        const sample = response.data[0];
-        if (sample && (!sample.time || sample.value === undefined)) {
-            console.error("⚠️ ALERTE STRUCTURE: Format de donnée invalide reçue !", sample);
-        }
-    }
-    
-    console.groupEnd();
-    return response;
-}, error => {
-    console.group(`🔥 RX ERROR: ${error.config?.url}`);
-    if (error.response) {
-        console.error('Status:', error.response.status);
-        console.error('Detail:', error.response.data);
-    } else {
-        console.error('Network Error:', error.message);
-    }
-    console.groupEnd();
-    return Promise.reject(error);
-});
-
 export const marketApi = {
-  // ... (Le reste de vos exports reste identique)
   getSnapshot: (ticker, period) => apiClient.get(`/api/snapshot/${ticker}?period=${period}`),
   getCompanyInfo: (ticker) => apiClient.get(`/api/company/${ticker}`),
   getSidebarData: () => apiClient.get('/api/watchlists/sidebar'),

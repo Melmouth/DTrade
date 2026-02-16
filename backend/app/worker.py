@@ -50,7 +50,7 @@ async def market_data_worker():
                 await asyncio.sleep(1)
                 continue
 
-            log(f"Cycle Bulk : {len(all_tickers)} tickers (Graphiques actifs : {len(active_tickers)})")
+            #log(f"Cycle Bulk : {len(all_tickers)} tickers (Graphiques actifs : {len(active_tickers)})")
 
             # 2. FETCH UNIQUE (1 requête pour N tickers)
             # Cette méthode retourne { ticker: { price, change_pct, is_open } }
