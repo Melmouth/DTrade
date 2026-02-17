@@ -1,7 +1,8 @@
+/* frontend/src/hooks/useIndicatorManager.js */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { marketApi } from '../api/client';
 
-export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT activePeriod
+export function useIndicatorManager(ticker, activePeriod) { 
   // Liste des indicateurs (mélange Config + Data calculée)
   const [indicators, setIndicators] = useState([]);
   
@@ -64,7 +65,7 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
   useEffect(() => {
     // Petit debounce pour éviter de spammer si l'utilisateur change de TF rapidement
     const t = setTimeout(() => {
-        setIndicators([]); // Reset visuel immédiat (optionnel, peut être enlevé si on veut garder l'ancien état pdt le loading)
+        setIndicators([]); // Reset visuel immédiat
         loadIndicators();
     }, 100);
     return () => clearTimeout(t);
@@ -73,9 +74,25 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
   // --- 2. ACTIONS CRUD ---
 
   const addIndicator = useCallback(async (newIndConfig) => {
-    // Note: newIndConfig contient params, style, type, granularity... venant de l'éditeur
+    // --- CORRECTION RBI CRITIQUE : DÉTERMINATION DE LA RÉSOLUTION ---
+    // Si la résolution n'est pas fournie explicitement (cas legacy ou Editor), 
+    // on tente de la déduire du contexte actuel (activePeriod).
+    let finalRes = newIndConfig.resolution;
     
-    // 1. On prépare le payload propre pour le backend
+    if (!finalRes || finalRes === 'chart') {
+        // Fallback intelligent basé sur la vue actuelle
+        if (newIndConfig.granularity === 'data' && activePeriod) {
+             if (activePeriod === '1d') finalRes = '1m';
+             else if (activePeriod === '5d') finalRes = '5m'; // ou 15m
+             else if (activePeriod === '1mo') finalRes = '1h';
+             else if (['3mo', '6mo', 'ytd', '1y', '2y', '5y', 'max'].includes(activePeriod)) finalRes = '1d';
+             else finalRes = '1d';
+        } else {
+             finalRes = '1d'; // Macro par défaut
+        }
+    }
+
+    // 1. On prépare le payload propre pour le backend avec la résolution corrigée
     const payload = {
       ticker,
       type: newIndConfig.type,
@@ -84,10 +101,11 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
           color: newIndConfig.color, 
           lineWidth: newIndConfig.lineWidth || 2,
           lineStyle: newIndConfig.lineStyle || 0,
-          type: newIndConfig.style?.type || 'LINE' // Assurance type
+          type: newIndConfig.style?.type || 'LINE' 
       }, 
       granularity: newIndConfig.granularity || 'days',
-      period: activePeriod, // On sauvegarde le contexte de création
+      resolution: finalRes, // <--- LE CHAMP QUI MANQUAIT !
+      period: activePeriod, // On sauvegarde le contexte de création pour info
       name: newIndConfig.name
     };
 
@@ -102,7 +120,7 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
       // 3. Ajout Optimiste à la liste (avec loader)
       const tempIndState = { 
         ...savedInd, 
-        color: colorToUse, // Application du fix
+        color: colorToUse,
         visible: true, 
         data: null, 
         isFetching: true 
@@ -119,7 +137,6 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
 
     } catch (e) {
       console.error("[SBC] Add indicator failed", e);
-      // Rollback en cas d'erreur (optionnel, ici on laisse l'erreur visible console)
     }
   }, [ticker, activePeriod]);
 
@@ -147,9 +164,6 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
 
   const updateIndicator = useCallback(async (updatedInd) => {
     // SBC Strategy: Immutable Update.
-    // Comme le backend stocke l'historique de config, le plus simple pour "Modifier"
-    // est de supprimer l'ancien et recréer le nouveau. Cela garantit un recalc propre.
-    
     if (!updatedInd.id) return;
 
     try {
@@ -159,7 +173,7 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
        // 2. Nettoyer l'état local
        setIndicators(prev => prev.filter(i => i.id !== updatedInd.id));
 
-       // 3. Recréer comme nouveau (cela déclenchera save + compute)
+       // 3. Recréer comme nouveau (cela déclenchera save + compute avec la bonne logique addIndicator)
        await addIndicator(updatedInd); 
 
     } catch (e) {
@@ -168,7 +182,6 @@ export function useIndicatorManager(ticker, activePeriod) { // <--- AJOUT active
   }, [addIndicator]);
 
   const nukeIndicators = useCallback(() => {
-     // Reset local uniquement (le Nuke DB est géré par SettingsModal)
      setIndicators([]);
   }, []);
 

@@ -109,6 +109,26 @@ def resolve_fetch_params(view_period: str):
         
     return chart_fetch_period, chart_interval
 
+# --- NEW: RESOLUTION MAPPING FOR RBI (Resolution-Based Independence) ---
+def resolve_fetch_params_from_resolution(resolution: str):
+    """
+    Traduit une résolution technique (1m, 1h, 1d) en paramètres de fetch Yahoo optimaux.
+    C'est le moteur de l'indépendance des données.
+    """
+    if resolution == '1m':
+        return "5d", "1m"  # Yahoo limite le 1m à 7 jours max. 5d est safe.
+    elif resolution in ['2m', '5m', '15m']:
+        return "1mo", resolution # On prend 1 mois de 5m/15m (max Yahoo ~60j)
+    elif resolution in ['30m', '1h', '60m']:
+        return "3mo", "1h" # On prend 3 mois de H1 (max Yahoo ~730j)
+    elif resolution == '1d':
+        return "2y", "1d"  # Standard Daily
+    elif resolution in ['1wk', '1mo']:
+        return "max", resolution
+    
+    # Fallback par défaut
+    return "1y", "1d"
+
 # --- LAYER 1 : STATIC DATA (Cached) ---
 @lru_cache(maxsize=32)
 def _fetch_heavy_data(ticker: str, period: str, time_hash: int):

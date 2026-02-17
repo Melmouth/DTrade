@@ -128,6 +128,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
       ...indicator,
       params: localParams,
       granularity,
+      resolution: granularity === 'days' ? '1d' : 'chart', // <--- ALIGNEMENT STRICT AVEC BACKEND
       color,
       name,
       style: { color, type: definition.type === 'BAND' ? 'BAND' : 'LINE' },
