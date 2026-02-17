@@ -154,7 +154,8 @@ export default function StockChart({
                     <Overlays 
                         indicators={allIndicators} 
                         chartData={formattedData} 
-                        dailyData={dailyData} 
+                        dailyData={dailyData}
+                        activePeriod={activePeriod} // <--- TRÈS IMPORTANT pour le filtrage RBI 
                         priceLineVisible={visibility.priceLines}
                     />
 

@@ -1,7 +1,8 @@
+/* frontend/src/App.jsx */
 import { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye,
-  LayoutDashboard, Briefcase
+  LayoutDashboard, Briefcase, FileText // <--- IMPORT FileText
 } from 'lucide-react';
 
 // --- COMPONENTS ---
@@ -15,6 +16,7 @@ import BootSequence from './components/BootSequence';
 import CompanyInfo from './components/CompanyInfo';
 import MarketStatus from './components/MarketStatus';
 import PortfolioView from './components/PortfolioView'; 
+import IndicatorInfoCard from './components/IndicatorInfoCard'; // <--- IMPORT INFO CARD
 
 // --- HOOKS ---
 import { useIndicatorManager } from './hooks/useIndicatorManager';
@@ -39,6 +41,9 @@ function App() {
   // États Édition Indicateurs
   const [editingIndicator, setEditingIndicator] = useState(null);
   const [previewSeries, setPreviewSeries] = useState(null);
+  
+  // État Fiche Technique (RBI)
+  const [infoIndicator, setInfoIndicator] = useState(null); // <--- STATE MODALE
 
   // Données Sidebar (Watchlists)
   const [sidebarData, setSidebarData] = useState([]);
@@ -314,22 +319,58 @@ function App() {
                             ticker={ticker} 
                             chartData={chartData} 
                             dailyData={dailyData} 
+                            activePeriod={currentPeriod} // <--- AJOUT CRITIQUE POUR RBI
                             onAddIndicator={handleAddIndicator} 
                             onPreview={(previewData) => setPreviewSeries(previewData)} 
                         />
                         <AddToWatchlist ticker={ticker} watchlists={sidebarData} onUpdate={loadSidebar} />
                     </div>
 
-                    {/* ACTIVE INDICATORS LIST */}
+                    {/* ACTIVE INDICATORS LIST (AVEC FEEDBACK RBI GHOST MODE) */}
                     {currentIndicators.length > 0 && (
                         <div className="flex flex-wrap gap-3">
                         {currentIndicators.map(ind => {
                             const displayColor = ind.color || ind.style?.color || '#00f3ff';
                             
+                            // --- LOGIQUE VISUELLE RBI (Anti-Stretch Feedback) ---
+                            // 1. Est-ce que le graphique est en vue Macro ?
+                            const isChartMacro = ['3mo', '6mo', 'ytd', '1y', '2y', '5y', 'max'].includes(currentPeriod);
+                            // 2. Est-ce que l'indicateur est Micro (Intraday) ?
+                            const res = ind.resolution || ind.granularity || 'days';
+                            const isIndMicro = ['1m', '2m', '5m', '15m', '30m', '60m', '1h', 'data'].includes(res);
+                            
+                            // 3. Si Graph Macro + Ind Micro -> Il est masqué par le moteur RBI
+                            const isRBIHidden = isChartMacro && isIndMicro;
+
                             return (
-                                <div key={ind.id} className={`relative flex items-center gap-2 px-3 py-1.5 text-[10px] border tracking-wider transition-all uppercase group ${ind.visible ? 'bg-slate-900/90 border-neon-blue/30 text-neon-blue shadow-[0_0_10px_rgba(0,243,255,0.1)]' : 'bg-transparent border-slate-800 text-slate-600 dashed opacity-70'}`}>
-                                    <div className={`w-1.5 h-1.5 shadow-[0_0_5px_currentColor] ${!ind.visible && 'opacity-20'}`} style={{ backgroundColor: displayColor }}></div>
+                                <div 
+                                    key={ind.id} 
+                                    title={isRBIHidden ? "Auto-Masqué : Zoom in required (Micro Resolution)" : ""}
+                                    className={`
+                                        relative flex items-center gap-2 px-3 py-1.5 text-[10px] border tracking-wider transition-all uppercase group
+                                        ${!ind.visible 
+                                            ? 'bg-transparent border-slate-800 text-slate-600 dashed opacity-70' // Cas 1 : Masqué manuellement
+                                            : isRBIHidden 
+                                                ? 'bg-slate-900/20 border-slate-900 text-slate-700 opacity-40 cursor-not-allowed grayscale' // Cas 2 : Masqué par RBI (Ghost)
+                                                : 'bg-slate-900/90 border-neon-blue/30 text-neon-blue shadow-[0_0_10px_rgba(0,243,255,0.1)]' // Cas 3 : Actif
+                                        }
+                                    `}
+                                >
+                                    <div className={`w-1.5 h-1.5 shadow-[0_0_5px_currentColor] ${(!ind.visible || isRBIHidden) && 'opacity-20'}`} style={{ backgroundColor: displayColor }}></div>
+                                    
                                     <span className="font-bold">{ind.name}</span>
+                                    
+                                    {/* Icône d'avertissement subtile si RBI Hidden */}
+                                    {isRBIHidden && <span className="text-[8px] opacity-50 ml-1">⚠️ ZOOM</span>}
+                                    
+                                    {/* TRIGGER FICHE TECHNIQUE (RBI) */}
+                                    <button 
+                                        onClick={() => setInfoIndicator(ind)}
+                                        className="opacity-0 group-hover:opacity-100 hover:text-white hover:scale-110 transition-all text-slate-500 ml-1"
+                                        title="Spécifications Techniques"
+                                    >
+                                        <FileText size={10} />
+                                    </button>
                                     
                                     <div className="flex gap-2 ml-2 pl-2 border-l border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button onClick={() => setEditingIndicator(ind)} className="hover:text-white hover:scale-110 transition text-neon-orange" title="Configurer">
@@ -404,6 +445,12 @@ function App() {
           </div>
         </main>
       </div>
+
+      <IndicatorInfoCard 
+        indicator={infoIndicator}
+        isOpen={!!infoIndicator}
+        onClose={() => setInfoIndicator(null)}
+      />
 
       <SettingsModal 
         isOpen={showSettings} 

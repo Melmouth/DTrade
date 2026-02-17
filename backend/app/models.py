@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional, List, Dict, Union, Any
+from datetime import datetime
 
 # --- EXISTING MODELS (LEGACY & SMART INDICATORS) ---
 
@@ -39,8 +40,9 @@ class IndicatorSaveRequest(BaseModel):
     type: str
     params: Dict[str, Any]
     style: Dict[str, Any]
-    granularity: str = "days"
-    period: str = "1mo"        # <--- NOUVEAU : Le contexte temporel de la création
+    granularity: str = "days" # Gardé pour compatibilité legacy front, mais déprécié logiquement
+    resolution: str = "1d"    # <--- NOUVEAU : Source de vérité (1m, 5m, 1h, 1d)
+    period: str = "1mo"       # Contexte de création (pour info)
     name: Optional[str] = None
 
 class IndicatorDTO(BaseModel):
@@ -50,8 +52,10 @@ class IndicatorDTO(BaseModel):
     params: Dict[str, Any]
     style: Dict[str, Any]
     granularity: str
-    period: str               # <--- NOUVEAU
+    resolution: str           
+    period: str
     name: str
+    created_at: Optional[datetime] = None # <--- AJOUT CRITIQUE
 
 # Structures pour les réponses de données calculées
 class IndicatorPoint(BaseModel):
@@ -82,9 +86,9 @@ class PositionDTO(BaseModel):
     ticker: str
     quantity: float
     avg_price: float
-    current_price: float = 0.0  # Sera rempli par le live data
-    market_value: float = 0.0   # Qty * CurrentPrice
-    pnl_unrealized: float = 0.0 # MarketValue - (Qty * AvgPrice)
+    current_price: float = 0.0
+    market_value: float = 0.0
+    pnl_unrealized: float = 0.0
     pnl_pct: float = 0.0
 
 class TransactionDTO(BaseModel):
@@ -98,8 +102,8 @@ class TransactionDTO(BaseModel):
 
 class PortfolioSummary(BaseModel):
     cash_balance: float
-    equity_value: float # Cash + Valeur Positions
-    total_pnl: float    # Equity - Investissement initial
+    equity_value: float
+    total_pnl: float
     pnl_pct: float
     positions_count: int
-    invested_capital: float = 0.0 # Ajouté pour le suivi du capital réel
+    invested_capital: float = 0.0
