@@ -1,3 +1,4 @@
+/* frontend/src/components/IndicatorMenu.jsx */
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Settings2, Wand2, Palette, Activity, ChevronRight, ChevronLeft, 
@@ -20,6 +21,23 @@ const CATEGORIES = [
   { id: 'GRAVITY', label: 'Gravity', icon: Anchor, color: 'text-neon-purple', borderColor: 'group-hover:border-neon-purple/50', desc: 'Stops, Reversals & Exits', filter: (tags) => tags.includes('Stop') || tags.includes('Reversal') }
 ];
 
+// --- HELPER CRITIQUE : NORMALISATION DES DONNÉES ---
+// Le Worker attend des timestamps unix (seconds), mais chartData arrive souvent avec 'date' (ISO).
+const normalizeData = (data) => {
+  if (!Array.isArray(data)) return [];
+  return data.map(d => {
+    // Si 'time' existe déjà et est valide, on garde
+    if (d.time !== undefined && !Number.isNaN(Number(d.time))) return d;
+    
+    // Sinon on convertit la date ISO en timestamp secondes
+    if (d.date) {
+       const t = new Date(d.date).getTime() / 1000;
+       return { ...d, time: t };
+    }
+    return d;
+  });
+};
+
 export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndicator, onPreview }) {
   const [isOpen, setIsOpen] = useState(false);
   
@@ -41,18 +59,24 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
   const calcTimeoutRef = useRef(null);
 
   // --- OPTIMISATION CRITIQUE : STATIC DATA SNAPSHOT ---
-  // On stocke une référence aux données.
-  const staticChartData = useRef(chartData);
-  const staticDailyData = useRef(dailyData);
+  // MODIF: On initialise à vide pour permettre l'hydratation tardive
+  const staticChartData = useRef([]);
+  const staticDailyData = useRef([]);
 
-  // On met à jour les données statiques UNIQUEMENT à l'ouverture du menu.
-  // Si le marché bouge pendant que le menu est ouvert, on s'en fiche pour la preview.
+  // CORRECTION: Logique d'hydratation intelligente AVEC NORMALISATION
   useEffect(() => {
       if (isOpen) {
-          staticChartData.current = chartData;
-          staticDailyData.current = dailyData;
+          // Si on n'a pas encore de données figées (ou tableau vide), on capture les données courantes ET ON NORMALISE
+          if (staticChartData.current.length === 0 && chartData.length > 0) {
+              staticChartData.current = normalizeData(chartData);
+              staticDailyData.current = normalizeData(dailyData);
+          }
+      } else {
+          // Reset complet à la fermeture pour garantir la fraîcheur à la prochaine ouverture
+          staticChartData.current = [];
+          staticDailyData.current = [];
       }
-  }, [isOpen]); // Dépendance unique : l'ouverture
+  }, [isOpen, chartData, dailyData]); // On écoute les data pour l'hydratation initiale
 
   const allIndicators = useMemo(() => getAvailableIndicators(), []);
 
@@ -74,20 +98,30 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
       }
 
       if (!currentDef) return; 
-      // Note: On check si staticChartData.current existe dans le timeout
 
       // Reset du timer précédent
       if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current);
 
       calcTimeoutRef.current = setTimeout(async () => {
           try {
-              // On utilise les données STATIC pour le calcul (pas de re-render sur tick)
-              if (!staticChartData.current || staticChartData.current.length === 0) return;
+              // Safety Fallback : Si la ref est vide mais que les props sont là, on hydrate à la volée
+              let cSource = staticChartData.current;
+              let dSource = staticDailyData.current;
+
+              if (cSource.length === 0 && chartData.length > 0) {
+                  cSource = normalizeData(chartData);
+                  staticChartData.current = cSource;
+                  dSource = normalizeData(dailyData);
+                  staticDailyData.current = dSource;
+              }
+
+              // Si toujours vide, on annule
+              if (cSource.length === 0) return;
 
               const dataToPreview = await compute(
                   { id: selectedId, params: formParams, granularity },
-                  staticChartData.current, // <--- Données figées
-                  staticDailyData.current, // <--- Données figées
+                  cSource, // <--- Données normalisées
+                  dSource, // <--- Données normalisées
                   true // isPreview = true pour le slicing
               );
 
@@ -112,7 +146,7 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
 
       return () => { if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current); };
 
-  // CRITIQUE : chartData et dailyData RETIRÉS des dépendances
+  // CRITIQUE : chartData et dailyData SONT BIEN RETIRÉS des dépendances
   }, [selectedId, formParams, color, granularity, customName, isOpen, compute]);
 
 
@@ -290,33 +324,33 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, onAddIndic
             {/* 2. NIVEAU LISTE : INDICATEURS FILTRÉS */}
             {activeCategory && !selectedId && (
               <div className="flex flex-col h-full animate-in slide-in-from-right-4 duration-200">
-                 {/* Header Catégorie */}
-                 <div className="flex items-center gap-2 p-3 border-b border-white/5 bg-white/5">
-                    <button onClick={() => setActiveCategory(null)} className="text-slate-400 hover:text-white transition hover:scale-110">
-                        <ArrowLeft size={16} />
-                    </button>
-                    <span className={`text-xs font-bold uppercase tracking-wider ${CATEGORIES.find(c => c.id === activeCategory).color}`}>
-                        {CATEGORIES.find(c => c.id === activeCategory).label} Nodes
-                    </span>
-                 </div>
+                  {/* Header Catégorie */}
+                  <div className="flex items-center gap-2 p-3 border-b border-white/5 bg-white/5">
+                     <button onClick={() => setActiveCategory(null)} className="text-slate-400 hover:text-white transition hover:scale-110">
+                         <ArrowLeft size={16} />
+                     </button>
+                     <span className={`text-xs font-bold uppercase tracking-wider ${CATEGORIES.find(c => c.id === activeCategory).color}`}>
+                         {CATEGORIES.find(c => c.id === activeCategory).label} Nodes
+                     </span>
+                  </div>
 
-                 {/* Liste */}
-                 <div className="p-1 max-h-[400px] overflow-y-auto custom-scrollbar">
-                    {filteredIndicators.map((ind) => (
-                        <button
-                            key={ind.id}
-                            onClick={() => handleSelectIndicator(ind)}
-                            className="w-full flex items-center justify-between p-3 hover:bg-white/5 group transition text-left border-b border-white/5 last:border-0"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="text-xs font-bold text-slate-300 group-hover:text-neon-blue transition-colors">
-                                    {ind.name}
-                                </div>
-                            </div>
-                            <ChevronRight size={14} className="text-slate-600 group-hover:text-white" />
-                        </button>
-                    ))}
-                 </div>
+                  {/* Liste */}
+                  <div className="p-1 max-h-[400px] overflow-y-auto custom-scrollbar">
+                     {filteredIndicators.map((ind) => (
+                         <button
+                             key={ind.id}
+                             onClick={() => handleSelectIndicator(ind)}
+                             className="w-full flex items-center justify-between p-3 hover:bg-white/5 group transition text-left border-b border-white/5 last:border-0"
+                         >
+                             <div className="flex items-center gap-3">
+                                 <div className="text-xs font-bold text-slate-300 group-hover:text-neon-blue transition-colors">
+                                     {ind.name}
+                                 </div>
+                             </div>
+                             <ChevronRight size={14} className="text-slate-600 group-hover:text-white" />
+                         </button>
+                     ))}
+                  </div>
               </div>
             )}
 

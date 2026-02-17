@@ -5,16 +5,22 @@ from .base import MarketDataProvider
 from datetime import datetime
 
 class YFinanceProvider(MarketDataProvider):
+    
+    # --- HELPER: Détection du calendrier selon le suffixe ---
+    def _get_cal_name(self, ticker: str) -> str:
+        if ticker.endswith(".PA"): return "XPAR"  # Euronext Paris
+        if ticker.endswith(".AS"): return "XAMS"  # Euronext Amsterdam (Adyen)
+        if ticker.endswith(".BR"): return "XBRU"  # Euronext Brussels
+        if ticker.endswith(".L"):  return "XLON"  # London
+        if ticker.endswith(".DE"): return "XETR"  # Xetra (Germany)
+        if ticker.endswith(".TO"): return "XTSE"  # Toronto
+        return "XNYS" # Default US (NYSE/NASDAQ)
+
     def fetch_history(self, ticker: str, period: str, interval: str) -> pd.DataFrame:
         try:
             stock = yf.Ticker(ticker)
             df = stock.history(period=period, interval=interval)
-            
-            if df.empty:
-                return None
-            
-            # Standardisation : On veut s'assurer que l'index est datetime
-            # et que les colonnes sont propres
+            if df.empty: return None
             return df
         except Exception as e:
             print(f"[YF Provider] Error history: {e}")
@@ -31,23 +37,23 @@ class YFinanceProvider(MarketDataProvider):
     def fetch_live_price(self, ticker: str) -> dict:
         try:
             stock = yf.Ticker(ticker)
+            # Utilisation de fast_info pour la performance
             price = stock.fast_info.last_price
             prev_close = stock.fast_info.previous_close
             
-            # --- Logique Exchange Calendar (Spécifique à la façon dont YF nomme les tickers) ---
-            cal_name = "XNYS" # Default US
-            if ticker.endswith(".PA"): cal_name = "XPAR"
-            elif ticker.endswith(".L"): cal_name = "XLON"
-            elif ticker.endswith(".TO"): cal_name = "XTSE"
-            elif ticker.endswith(".DE"): cal_name = "XETR"
+            # --- CORRECTION LOGIQUE CALENDRIER ---
+            cal_name = self._get_cal_name(ticker)
 
             try:
                 cal = ecals.get_calendar(cal_name)
-                now = pd.Timestamp.now(tz='UTC').floor('min')
+                now = pd.Timestamp.now(tz='UTC') # Pas de floor pour plus de précision ici
                 is_open = cal.is_trading_minute(now)
+                # Next event
                 next_event = cal.next_close(now) if is_open else cal.next_open(now)
                 next_event_iso = next_event.isoformat()
-            except:
+            except Exception as e:
+                # Fallback si exchange_calendars n'a pas la place
+                print(f"Calendar error for {ticker}: {e}")
                 is_open = False
                 next_event_iso = None
 
@@ -64,69 +70,52 @@ class YFinanceProvider(MarketDataProvider):
 
     def fetch_bulk_1m_status(self, tickers: list):
         """
-        Récupère les données 1m pour tous les tickers en une seule requête.
-        Version BLINDÉE contre les erreurs Yahoo.
+        Récupère les données 1m pour tous les tickers.
+        CORRIGÉ : Vérifie le calendrier par ticker individuel.
         """
         if not tickers: return {}
         
         try:
-            # 1. Détermination globale du status marché (Optimisation : on check XNYS une fois)
-            # Dans une version plus avancée, on pourrait checker par ticker selon le suffixe.
-            # Ici on assume que la majorité est US (XNYS).
-            is_market_open = False
-            try:
-                cal = ecals.get_calendar("XNYS") 
-                now = pd.Timestamp.now(tz='UTC').floor('min')
-                is_market_open = cal.is_trading_minute(now)
-            except:
-                is_market_open = False # Fallback sécurité
+            # On récupère le timestamp UTC actuel une seule fois
+            now = pd.Timestamp.now(tz='UTC')
 
-            # On télécharge les 2 derniers jours en 1m
-            # Astuce : On ajoute auto_adjust=True pour simplifier les données
+            # Téléchargement Bulk
             data = yf.download(tickers, period="2d", interval="1m", group_by='ticker', threads=True, progress=False, auto_adjust=True)
             
-            # Si Yahoo bloque ou renvoie vide
             if data is None or data.empty:
-                print("[YF Bulk] Warning: Yahoo returned empty data (Rate Limit?)")
                 return {}
 
             results = {}
             
+            # Cache simple des calendriers pour éviter de recharger "XNYS" 50 fois
+            calendar_cache = {}
+
             for t in tickers:
                 try:
-                    # Gestion du MultiIndex (si plusieurs tickers) ou DataFrame simple (si 1 ticker)
                     df = data[t] if len(tickers) > 1 else data
-                    
-                    # Vérification supplémentaire que df est bien un DataFrame valide
-                    if df is None or df.empty:
-                        continue
+                    if df is None or df.empty: continue
                         
-                    # Nettoyage des lignes où Close est NaN
                     df = df.dropna(subset=['Close'])
-                    
-                    if df.empty:
-                        continue
+                    if df.empty: continue
 
                     last_price = df['Close'].iloc[-1]
-                    # Protection si une seule ligne dispo (pas de prev_close)
                     prev_close = df['Close'].iloc[-2] if len(df) > 1 else last_price
                     
-                    # Protection contre NaN (Not a Number) qui fait planter le JSON
-                    if pd.isna(last_price) or pd.isna(prev_close):
-                        continue
+                    if pd.isna(last_price): continue
 
-                    # Gestion fine pour l'Europe (si suffixe détecté)
-                    # Si c'est un ticker européen (.PA, .DE), on pourrait affiner ici.
-                    # Pour l'instant, on applique la logique US XNYS ou on laisse fermé si XNYS fermé.
-                    # Le fix principal est ici : on remplace "True" par la variable calculée.
+                    # --- CORRECTION ICI ---
+                    # 1. Identifier le bon calendrier
+                    cal_name = self._get_cal_name(t)
                     
-                    ticker_is_open = is_market_open
-                    # Petit override rapide si suffixe détecté pour éviter incohérence majeure
-                    if any(t.endswith(x) for x in ['.PA', '.DE', '.L', '.TO']) and is_market_open:
-                         # Si US est ouvert mais c'est un ticker EU, c'est probablement fermé (décalage horaire)
-                         # Simplification : On force false pour les suffixes non-US si on est le soir en UTC
-                         # Ceci est une approximation pour l'instant
-                         pass 
+                    # 2. Vérifier l'ouverture
+                    ticker_is_open = False
+                    try:
+                        if cal_name not in calendar_cache:
+                            calendar_cache[cal_name] = ecals.get_calendar(cal_name)
+                        
+                        ticker_is_open = calendar_cache[cal_name].is_trading_minute(now)
+                    except:
+                        ticker_is_open = False # Fallback safe
 
                     results[t] = {
                         "price": round(float(last_price), 2),
@@ -134,7 +123,6 @@ class YFinanceProvider(MarketDataProvider):
                         "is_open": ticker_is_open
                     }
                 except KeyError:
-                    # Ticker introuvable dans le lot
                     continue
                 except Exception as e:
                     print(f"[YF Bulk] Error processing {t}: {e}")

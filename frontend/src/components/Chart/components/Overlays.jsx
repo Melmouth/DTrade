@@ -5,6 +5,27 @@ import { useSeries } from '../hooks/useSeries';
 import { calculateIndicator } from '../../../indicators/registry';
 import { hydrateBackendData } from '../../../utils/calculations/formatters';
 
+// --- ADAPTER CRITIQUE POUR LE PREVIEW (Fix Sliders) ---
+// Transforme le format "Split" du Worker { upper:[], lower:[] } 
+// vers le format "Merged" attendu par les graphiques [{ time, upper, lower }]
+function zipWorkerData(workerData) {
+    if (!workerData) return [];
+    
+    // Cas 1 : Déjà un tableau (SMA/RSI simple calculé par worker)
+    if (Array.isArray(workerData)) return workerData;
+
+    // Cas 2 : Objet de bandes (Bollinger calculé par worker)
+    if (workerData.upper && Array.isArray(workerData.upper)) {
+        return workerData.upper.map((u, i) => ({
+            time: u.time,
+            upper: u.value,
+            lower: workerData.lower?.[i]?.value,
+            basis: workerData.basis?.[i]?.value
+        }));
+    }
+    return [];
+}
+
 // Composant Helper pour une ligne simple
 const SingleLine = ({ data, color, style = 'solid', visible }) => {
     
@@ -79,17 +100,29 @@ export default function Overlays({ indicators, chartData, dailyData, priceLineVi
         let points = null;
 
         // 1. Data Source Strategy
-        if (ind.data && (Array.isArray(ind.data) || typeof ind.data === 'object')) {
+        if (ind.isPreview && ind.data) {
+            // === FIX DU BUG SLIDERS ===
+            // Preview Mode (Worker JS) : On bypass l'hydratation backend
+            // On utilise l'adapter pour convertir le format Worker -> Chart
+            points = zipWorkerData(ind.data);
+        }
+        else if (ind.data && (Array.isArray(ind.data) || typeof ind.data === 'object')) {
             // Backend Data + Hydration (Gestion des données Daily sur Chart Intraday)
             points = hydrateBackendData(ind.data, chartData, ind.granularity);
-        } else {
+        } 
+        else {
             // Frontend Calc Fallback (Calcul à la volée si pas de data backend)
             const config = { 
                 id: ind.type, 
                 params: ind.params, 
                 granularity: ind.granularity || 'days' 
             };
-            points = calculateIndicator(config, chartData, dailyData);
+            const rawPoints = calculateIndicator(config, chartData, dailyData);
+            
+            // Si le fallback renvoie aussi un format objet (ex: Bollinger), on le zip
+            points = (!Array.isArray(rawPoints) && rawPoints?.upper) 
+                ? zipWorkerData(rawPoints) 
+                : rawPoints;
         }
 
         if (!points) return null;

@@ -31,5 +31,5 @@ yarn-error.log*
 *.sln
 *.swp
 
-# Repomix (si tu l'utilises localement)
+# Repomix 
 repomix-output.xml

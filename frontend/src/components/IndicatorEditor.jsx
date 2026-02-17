@@ -14,16 +14,43 @@ const COLORS = [
   '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc', '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4'
 ];
 
+// --- HELPER CRITIQUE : NORMALISATION DES DONNÉES ---
+// Le Worker attend des timestamps unix (seconds), mais chartData arrive souvent avec 'date' (ISO).
+const normalizeData = (data) => {
+  if (!Array.isArray(data)) return [];
+  return data.map(d => {
+    // Si 'time' existe déjà et est valide, on garde
+    if (d.time !== undefined && !Number.isNaN(Number(d.time))) return d;
+    
+    // Sinon on convertit la date ISO en timestamp secondes
+    if (d.date) {
+       const t = new Date(d.date).getTime() / 1000;
+       return { ...d, time: t };
+    }
+    return d;
+  });
+};
+
 export default function IndicatorEditor({ indicator, chartData, dailyData, activePeriod, onClose, onSave, onPreview }) {
   const [activeTab, setActiveTab] = useState('MANUAL');
   const [isVisualLoading, setIsVisualLoading] = useState(false);
   const [isSmartComputing, setIsSmartComputing] = useState(false);
 
   // --- OPTIMISATION CRITIQUE : STATIC DATA SNAPSHOT ---
-  // On capture les données UNE FOIS à l'ouverture pour éviter que les mises à jour 
-  // WebSocket (tick par tick) ne déclenchent des re-calculs lourds dans le worker.
-  const staticChartData = useRef(chartData).current;
-  const staticDailyData = useRef(dailyData).current;
+  // On utilise des Refs pour stocker une copie figée ET NORMALISÉE des données.
+  // Initialisation avec tableau vide pour forcer l'hydratation contrôlée.
+  const staticChartDataRef = useRef([]);
+  const staticDailyDataRef = useRef([]);
+
+  // Hydratation & Normalisation (S'exécute quand les props changent)
+  useEffect(() => {
+    if (chartData && chartData.length > 0) {
+        staticChartDataRef.current = normalizeData(chartData);
+    }
+    if (dailyData && dailyData.length > 0) {
+        staticDailyDataRef.current = normalizeData(dailyData);
+    }
+  }, [chartData, dailyData]);
 
   // Configuration locale
   const [localParams, setLocalParams] = useState(indicator.params || {});
@@ -45,12 +72,25 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
         setIsVisualLoading(true);
         
         try {
-            // UTILISATION DES DONNÉES STATIQUES (Snapshot)
+            // Safety Check : Si la ref est vide, on tente un fallback sur les props (avec normalisation)
+            let chartSource = staticChartDataRef.current;
+            let dailySource = staticDailyDataRef.current;
+
+            if (chartSource.length === 0 && chartData.length > 0) {
+                chartSource = normalizeData(chartData);
+                staticChartDataRef.current = chartSource; // Mise à jour Ref
+                dailySource = normalizeData(dailyData);
+                staticDailyDataRef.current = dailySource;
+            }
+
+            if (chartSource.length === 0) return; // Toujours rien ? On sort.
+
+            // UTILISATION DES DONNÉES STATIQUES NORMALISÉES
             const dataToPreview = await compute(
                 { id: indicator.type, params: localParams, granularity },
-                staticChartData, // <--- Données figées à l'ouverture
-                staticDailyData, // <--- Données figées à l'ouverture
-                true // isPreview = TRUE (Slicing activé côté worker)
+                chartSource, 
+                dailySource, 
+                true // isPreview = TRUE
             );
 
             if (dataToPreview) {
@@ -76,8 +116,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
 
     return () => clearTimeout(timer);
     
-    // NOTE IMPORTANTE : chartData et dailyData ont été RETIRÉS des dépendances
-    // pour ne recalculer que lors d'une interaction utilisateur (params, color, etc.)
+    // NOTE : chartData/dailyData sont retirés des dépendances pour performance
   }, [localParams, color, name, granularity, indicator.type, definition, compute]); 
 
   const handleParamChange = (key, value) => {
@@ -207,7 +246,7 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
                     </div>
                 </div>
             )}
-            {/* ... (Tab SMART reste identique) ... */}
+            {/* ... (Tab SMART) ... */}
             {activeTab === 'SMART' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
                     <div className="bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-lg relative overflow-hidden">

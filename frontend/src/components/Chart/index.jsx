@@ -46,28 +46,48 @@ export default function StockChart({
   // 3. Préparation Data (SANITIZATION ROBUSTE)
   const formattedData = useMemo(() => {
      if (!Array.isArray(data)) return [];
+
      const clean = data.reduce((acc, d) => {
         if (!d) return acc;
         
+        // 1. Normalisation du Time
         let time = d.time;
-        if (!time && d.date) {
+        
+        // Si pas de time unix, on tente de parser la date string
+        if ((time === undefined || time === null) && d.date) {
             const parsed = new Date(d.date).getTime();
+            // On convertit en secondes (Unix Timestamp)
             if (!Number.isNaN(parsed)) time = parsed / 1000;
         }
-        if (!time || Number.isNaN(time)) return acc;
 
+        // 2. REJET STRICT : Si le temps est invalide, on jette la bougie.
+        // C'est ce qui causait "time=NaN"
+        if (time === undefined || time === null || Number.isNaN(time)) {
+            return acc;
+        }
+
+        // 3. Normalisation des valeurs (Protection contre les nulls qui font crasher le Volume)
         acc.push({
             time: time,
+            date: d.date, // Important pour l'hydratation
             open: Number(d.open) || 0,
             high: Number(d.high) || 0,
             low: Number(d.low) || 0,
             close: Number(d.close) || 0,
-            value: Number(d.close) || 0, 
-            volume: Number(d.volume) || 0 
+            // Fallback pour LineSeries
+            value: d.value !== undefined ? Number(d.value) : (Number(d.close) || 0),
+            // Protection spécifique pour le crash "Value is null" du Volume
+            volume: d.volume !== undefined && d.volume !== null ? Number(d.volume) : 0 
         });
         return acc;
      }, []);
-     return clean.sort((a, b) => a.time - b.time);
+
+     // 4. TRI STRICT (Vital pour "must be asc ordered")
+     // On dédoublonne aussi par sécurité si deux bougies ont la même seconde
+     const uniqueMap = new Map();
+     clean.forEach(item => uniqueMap.set(item.time, item));
+     
+     return Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
   }, [data]);
 
   // 4. Indicators Merge (FUSION INTELLIGENTE)
@@ -144,7 +164,7 @@ export default function StockChart({
                                 mainSeries={mainSeriesInstance} 
                                 volumeSeries={null} 
                                 chartType={chartType}
-                                visibleFields={visibility} // <--- Connexion des toggles
+                                visibleFields={visibility} 
                                 visible={true}
                             />
                             <RulerTool mainSeries={mainSeriesInstance} />

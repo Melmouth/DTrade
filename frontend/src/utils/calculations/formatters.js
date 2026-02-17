@@ -1,3 +1,5 @@
+/* frontend/src/utils/calculations/formatters.js */
+
 /**
  * ==========================================
  * FORMATTERS & HELPERS
@@ -10,13 +12,17 @@ export function formatSeries(chartData, computedData) {
 
     for (let i = 0; i < chartData.length; i++) {
         const point = chartData[i];
+
+        // SÉCURITÉ : On saute si le point de référence n'a pas de temps valide (déjà nettoyé en amont)
+        if (!point || point.time === undefined || Number.isNaN(point.time)) continue;
+
         let val = undefined;
 
         if (isArrayMode) {
-            // Mode simple (tableau aligné)
+            // Mode simple (tableau aligné index par index)
             val = computedData[i];
         } else {
-            // Mode Map (Date -> Valeur)
+            // Mode Map (Date -> Valeur) pour le mapping Daily sur Intraday
             if (point.date) {
                 // On extrait la partie YYYY-MM-DD de la bougie intraday
                 const dateKey = point.date.split('T')[0];
@@ -24,12 +30,19 @@ export function formatSeries(chartData, computedData) {
             }
         }
 
+        // Validation stricte de la valeur ET du temps
+        // Lightweight charts accepte null/undefined pour "ne pas dessiner", 
+        // mais le temps DOIT être valide et trié.
         if (val !== undefined && val !== null && !isNaN(val)) {
-            // On convertit en timestamp seconde pour Lightweight Charts
-            res.push({ time: new Date(point.date).getTime() / 1000, value: val });
+            res.push({ 
+                time: point.time, // On utilise le time déjà nettoyé et valide du chartData
+                value: val 
+            });
         }
     }
-    return res;
+    
+    // TRI FINAL : Obligatoire pour éviter "Assertion failed: data must be asc ordered"
+    return res.sort((a, b) => a.time - b.time);
 }
 
 // --- NEW: BACKEND DATA HYDRATION ---
@@ -60,13 +73,17 @@ export function hydrateBackendData(backendData, chartData, granularity) {
     const hydrated = [];
 
     chartData.forEach(candle => {
-        if (!candle.date) return;
-        const candleDateStr = candle.date.split('T')[0];
+        // On sécurise ici aussi l'utilisation de candle.time si dispo
+        if (!candle.date && !candle.time) return;
+        
+        // Si candle.date existe, on l'utilise pour la clé. Sinon fallback (rare)
+        const candleDateStr = candle.date ? candle.date.split('T')[0] : new Date(candle.time * 1000).toISOString().split('T')[0];
         const dailyVal = valueMap.get(candleDateStr);
 
         if (dailyVal) {
             // On utilise le timestamp de la bougie intraday pour l'alignement X
-            const time = new Date(candle.date).getTime() / 1000;
+            // Priorité à candle.time qui est déjà un number (secondes) propre
+            const time = candle.time !== undefined ? candle.time : new Date(candle.date).getTime() / 1000;
             
             if (isBand) {
                 hydrated.push({
@@ -84,7 +101,7 @@ export function hydrateBackendData(backendData, chartData, granularity) {
         }
     });
 
-    return hydrated;
+    return hydrated.sort((a, b) => a.time - b.time);
 }
 
 export function getSource(chartData, dailyData, granularity) {

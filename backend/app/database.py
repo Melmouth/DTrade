@@ -3,7 +3,16 @@ import sqlite3
 DB_NAME = "market.db"
 
 def get_db():
-    conn = sqlite3.connect(DB_NAME)
+    # AJOUT 1: timeout=30.0 pour éviter les erreurs "database is locked" 
+    # quand le Worker et l'API écrivent en même temps.
+    conn = sqlite3.connect(DB_NAME, timeout=30.0)
+    
+    # AJOUT 2: Activation du mode WAL
+    conn.execute("PRAGMA journal_mode=WAL;")
+    
+    # AJOUT 3: Optimisation des écritures (très utile pour le trading haute fréquence)
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -39,7 +48,6 @@ def init_db():
         """)
 
         # 2. POSITIONS (Actifs détenus)
-        # avg_price = Prix de revient unitaire (Weighted Average)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS positions (
                 ticker TEXT PRIMARY KEY,
@@ -63,7 +71,6 @@ def init_db():
         """)
 
         # --- NEW: SHADOW BACK COMPUTE (SBC) TABLES ---
-        # Persistance des configurations d'indicateurs
         conn.execute("""
             CREATE TABLE IF NOT EXISTS saved_indicators (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,27 +80,23 @@ def init_db():
                 params TEXT NOT NULL,
                 style TEXT NOT NULL,
                 granularity TEXT DEFAULT 'days',
-                period TEXT DEFAULT '1mo',      -- <--- NOUVELLE COLONNE
+                period TEXT DEFAULT '1mo',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
         conn.execute("CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON saved_indicators(ticker)")
+        
         # --- SEEDS & DEFAULTS ---
-
-        # SEED: Default Watchlist Folder
         try:
             conn.execute("INSERT OR IGNORE INTO portfolios (name) VALUES (?)", ("Favoris",))
         except:
             pass
 
-        # SEED: Default Account with Cash (Paper Trading Start)
-        # On vérifie s'il y a un compte, sinon on en crée un avec 100k
         cur = conn.execute("SELECT count(*) as cnt FROM accounts")
         if cur.fetchone()['cnt'] == 0:
             print("[DB] Initialisation du compte Paper Trading (100k$)")
             conn.execute("INSERT INTO accounts (balance) VALUES (?)", (100000.0,))
-            # Initial Deposit Log
             conn.execute("""
                 INSERT INTO transactions (type, total_amount, timestamp) 
                 VALUES ('DEPOSIT', 100000.0, CURRENT_TIMESTAMP)
