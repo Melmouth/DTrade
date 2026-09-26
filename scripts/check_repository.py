@@ -42,7 +42,7 @@ def main():
                 if forbidden(path):
                     errors.add(f'Historical artifact: {path}')
         for email in git('log', '--all', '--format=%ae%n%ce').decode().splitlines():
-            if not email.endswith('@users.noreply.github.com'):
+            if not (email.endswith('@users.noreply.github.com') or email == 'noreply@github.com'):
                 errors.add('History contains an author/committer email outside GitHub noreply')
     if errors:
         print('\n'.join(sorted(errors)[:30]), file=sys.stderr)
