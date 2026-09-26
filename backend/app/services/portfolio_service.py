@@ -1,4 +1,5 @@
 import sqlite3
+import math
 from datetime import datetime
 from fastapi import HTTPException
 from ..database import get_db
@@ -42,6 +43,9 @@ def manage_cash(req: CashOperationRequest):
                 raise HTTPException(status_code=400, detail="Insufficient funds")
             new_balance -= req.amount
         
+        if not math.isfinite(new_balance) or not 0 <= new_balance <= 1_000_000_000_000:
+            raise HTTPException(400, "Balance outside allowed range")
+
         # 1. Update Balance
         conn.execute("UPDATE accounts SET balance = ? WHERE id = ?", (new_balance, account['id']))
         
@@ -58,11 +62,13 @@ def execute_order(order: OrderRequest, live_price: float):
     Exécute un ordre d'achat ou de vente.
     CRITIQUE : live_price doit être fourni par le contrôleur (source de vérité).
     """
-    if live_price <= 0:
+    if not math.isfinite(live_price) or not 0 < live_price <= 1_000_000_000:
         raise HTTPException(status_code=400, detail="Invalid market price")
 
     # Calcul du montant total de la transaction
     total_value = order.quantity * live_price
+    if not math.isfinite(total_value) or total_value > 1_000_000_000:
+        raise HTTPException(400, "Order exceeds allowed value")
 
     with get_db() as conn:
         # Récupération du compte (Lock implicite via transaction SQL)
@@ -117,6 +123,8 @@ def execute_order(order: OrderRequest, live_price: float):
             
             # 2. Crédit Cash
             new_balance = current_balance + total_value
+            if new_balance > 1_000_000_000_000:
+                raise HTTPException(400, "Balance outside allowed range")
             conn.execute("UPDATE accounts SET balance = ? WHERE id = ?", (new_balance, account['id']))
 
             # 3. Update Position

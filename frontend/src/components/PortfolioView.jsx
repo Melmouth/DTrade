@@ -30,7 +30,7 @@ export default function PortfolioView() {
   // 1. Initialization
   useEffect(() => {
     fetchPortfolio();
-  }, []);
+  }, [fetchPortfolio]);
 
   // 2. Real-Time Sync
   useEffect(() => {
@@ -46,7 +46,7 @@ export default function PortfolioView() {
 
   // --- SUB-VIEWS COMPONENTS ---
 
-  const SummaryTab = () => (
+  const renderSummaryTab = () => (
     <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
       {/* KPI GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -125,7 +125,7 @@ export default function PortfolioView() {
     </div>
   );
 
-  const PositionsTab = () => (
+  const renderPositionsTab = () => (
     <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full animate-in fade-in duration-300 shadow-xl">
         <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm">
             <h3 className="font-bold text-slate-200 flex items-center gap-2 text-xs uppercase tracking-widest">
@@ -187,7 +187,7 @@ export default function PortfolioView() {
     </div>
   );
 
-  const HistoryTab = () => (
+  const renderHistoryTab = () => (
     <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden flex flex-col h-full animate-in fade-in duration-300 shadow-xl">
         <div className="p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm">
             <h3 className="font-bold text-slate-200 flex items-center gap-2 text-xs uppercase tracking-widest">
@@ -231,7 +231,7 @@ export default function PortfolioView() {
     </div>
   );
 
-  const AdminTab = () => (
+  const renderAdminTab = () => (
     <div className="max-w-3xl mx-auto space-y-8 py-8 animate-in slide-in-from-bottom-4 duration-300">
         
         {/* CASH MANAGEMENT */}
@@ -322,10 +322,10 @@ export default function PortfolioView() {
 
       {/* 2. CONTENT AREA */}
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-gradient-to-b from-[#050505] to-[#0a0a0a]">
-          {activeTab === 'DASHBOARD' && <SummaryTab />}
-          {activeTab === 'POSITIONS' && <PositionsTab />}
-          {activeTab === 'HISTORY' && <HistoryTab />}
-          {activeTab === 'ADMIN' && <AdminTab />}
+          {activeTab === 'DASHBOARD' && renderSummaryTab()}
+          {activeTab === 'POSITIONS' && renderPositionsTab()}
+          {activeTab === 'HISTORY' && renderHistoryTab()}
+          {activeTab === 'ADMIN' && renderAdminTab()}
       </div>
 
       {/* 3. MODAL */}

@@ -4,7 +4,7 @@ import { createChart, ColorType, CrosshairMode } from 'lightweight-charts';
 
 export function useChartInit(containerRef, height = 500) {
   const chartInstance = useRef(null);
-  const [isReady, setIsReady] = useState(false);
+  const [chartState, setChartState] = useState(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -14,7 +14,7 @@ export function useChartInit(containerRef, height = 500) {
       layout: {
         background: { type: ColorType.Solid, color: '#050505' },
         textColor: '#64748b',
-        fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+        fontFamily: "'JetBrains Mono Variable', 'Courier New', monospace",
         fontSize: 10,
       },
       width: containerRef.current.clientWidth,
@@ -38,7 +38,7 @@ export function useChartInit(containerRef, height = 500) {
     });
 
     chartInstance.current = chart;
-    setIsReady(true);
+    setChartState(chart);
 
     // 2. Gestion Resize
     const handleResize = () => {
@@ -55,10 +55,10 @@ export function useChartInit(containerRef, height = 500) {
       if (chartInstance.current) {
         chartInstance.current.remove();
         chartInstance.current = null;
-        setIsReady(false);
+        setChartState(null);
       }
     };
   }, [containerRef, height]);
 
-  return { chart: chartInstance.current, isReady };
+  return { chart: chartState, isReady: chartState !== null };
 }

@@ -1,35 +1,56 @@
-# Dépendances
+# Dependencies and generated output
 node_modules/
-.pnp
-.pnp.js
-
-# Build et Sortie
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 dist/
 build/
 .next/
 out/
-
-# Environnement (SÉCURITÉ)
+.pnp*
+# Never publish runtime data, credentials, backups or reports
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# IDE / Système
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.log
+*.bundle
+*.bak
+*.backup
+*.dump
+*.sql
+*.zip
+*.tar
+*.gz
+.npmrc
+.pypirc
+.netrc
+.git-credentials
+secrets/
+private/
+backups/
+audit-output/
+playwright-report/
+test-results/
+# Editor / OS
 .vscode/
 .idea/
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.swp
-
-# Repomix 
 repomix-output.xml

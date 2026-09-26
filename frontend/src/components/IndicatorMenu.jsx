@@ -149,6 +149,8 @@ export default function IndicatorMenu({ ticker, chartData, dailyData, activePeri
       }, 40);
 
       return () => { if (calcTimeoutRef.current) clearTimeout(calcTimeoutRef.current); };
+    // Preview intentionally uses its captured data snapshot; market ticks must not rebuild it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, formParams, color, granularity, activePeriod, customName, isOpen, compute]);
 
 

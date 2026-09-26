@@ -76,6 +76,7 @@ export default function RulerTool({ mainSeries }) {
             }
         };
 
+        const measurement = measurementRef.current;
         chart.subscribeClick(handleClick);
         chart.subscribeCrosshairMove(handleMove);
 
@@ -83,7 +84,7 @@ export default function RulerTool({ mainSeries }) {
             chart.unsubscribeClick(handleClick);
             chart.unsubscribeCrosshairMove(handleMove);
             // Cleanup final
-            if (measurementRef.current.removeTimer) clearTimeout(measurementRef.current.removeTimer);
+            if (measurement.removeTimer) clearTimeout(measurement.removeTimer);
         };
     }, [chart, mainSeries]);
 

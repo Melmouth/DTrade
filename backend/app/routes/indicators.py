@@ -3,11 +3,12 @@ from typing import List, Optional
 import json
 import pandas as pd
 import numpy as np
+from pydantic import ValidationError
 
 from ..database import get_db
 from ..models import (
-    IndicatorSaveRequest, IndicatorDTO, 
-    SmartPeriodRequest, SmartBandRequest, SmartFactorRequest
+    IndicatorSaveRequest, IndicatorDTO,
+    SmartPeriodRequest, SmartBandRequest, SmartFactorRequest, Ticker, Period
 )
 from ..services import market_data, optimizer
 from ..services.indicators import compute_indicator
@@ -15,10 +16,10 @@ from ..services.indicators import compute_indicator
 router = APIRouter(prefix="/api/indicators", tags=["indicators"])
 
 @router.get("/{ticker}", response_model=List[IndicatorDTO])
-def get_saved_indicators(ticker: str):
+def get_saved_indicators(ticker: Ticker):
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM saved_indicators WHERE ticker = ?", (ticker,)).fetchall()
-        
+
     results = []
     for r in rows:
         results.append({
@@ -29,7 +30,7 @@ def get_saved_indicators(ticker: str):
             "params": json.loads(r["params"]),
             "style": json.loads(r["style"]),
             "granularity": r["granularity"],
-            "resolution": r["resolution"], 
+            "resolution": r["resolution"],
             "period": r["period"] or "1mo",
             "created_at": r["created_at"]
         })
@@ -39,12 +40,12 @@ def get_saved_indicators(ticker: str):
 def save_indicator(req: IndicatorSaveRequest):
     params_json = json.dumps(req.params)
     style_json = json.dumps(req.style)
-    
+
     # 1. RBI LOGIC : ON FAIT CONFIANCE AU FRONTEND
     # Si le front a envoyé une resolution précise (1m, 5m, 1h), on l'utilise.
     # Sinon (Legacy), on applique la logique de fallback.
     final_resolution = req.resolution
-    
+
     if not final_resolution:
         if req.granularity == 'days':
             final_resolution = '1d'
@@ -60,18 +61,18 @@ def save_indicator(req: IndicatorSaveRequest):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (req.ticker, req.type, req.name, params_json, style_json, req.granularity, final_resolution, req.period))
         new_id = cursor.lastrowid
-        
+
         # Récupération immédiate du timestamp de création
         created_row = conn.execute("SELECT created_at FROM saved_indicators WHERE id = ?", (new_id,)).fetchone()
         created_at = created_row['created_at'] if created_row else None
-        
+
         conn.commit()
 
     return {
         "id": new_id,
         "ticker": req.ticker,
         "type": req.type,
-        "name": req.name,
+        "name": req.name or req.type,
         "params": req.params,
         "style": req.style,
         "granularity": req.granularity,
@@ -89,31 +90,38 @@ def delete_indicator(ind_id: int):
 
 @router.get("/{ticker}/calculate/{ind_id}")
 def calculate_saved_indicator(
-    ticker: str, 
-    ind_id: int, 
+    ticker: Ticker,
+    ind_id: int,
     # context_period est obsolète pour le calcul RBI pur, mais on le garde pour compatibilité API
-    context_period: Optional[str] = Query(None) 
+    context_period: Optional[Period] = Query(None)
 ):
     """
     RBI CORE : Calcul basé STRICTEMENT sur la résolution stockée.
     L'indicateur est 'Timeframe Invariant'. Il ignore la vue actuelle du graphique.
     """
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM saved_indicators WHERE id = ?", (ind_id,)).fetchone()
+        row = conn.execute("SELECT * FROM saved_indicators WHERE id = ? AND ticker = ?", (ind_id, ticker)).fetchone()
         if not row:
             raise HTTPException(404, "Indicator not found")
-    
-    params = json.loads(row["params"])
-    ind_type = row["type"]
-    resolution = row["resolution"] # <--- VÉRITÉ TERRAIN (ex: '1m', '1d')
-    
+
+    try:
+        validated = IndicatorSaveRequest(
+            ticker=ticker, type=row["type"], params=json.loads(row["params"]),
+            style=json.loads(row["style"]), resolution=row["resolution"],
+            granularity=row["granularity"], period=row["period"], name=row["name"])
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(409, "Stored indicator requires a valid configuration") from None
+    params = validated.params
+    ind_type = validated.type
+    resolution = validated.resolution # <--- VÉRITÉ TERRAIN (ex: '1m', '1d')
+
     # --- LOGIQUE RBI : RÉSOLUTION -> FETCH PARAMS ---
     # On utilise la nouvelle fonction de résolution stricte
     period_fetch, interval_fetch = market_data.resolve_fetch_params_from_resolution(resolution)
 
     # 2. Fetch Data (Indépendant du graphique actuel)
     df = market_data.provider.fetch_history(ticker, period_fetch, interval_fetch)
-    
+
     if df is None or df.empty:
         return []
 

@@ -3,8 +3,25 @@ import pandas as pd
 import exchange_calendars as ecals
 from .base import MarketDataProvider
 from datetime import datetime
+from threading import BoundedSemaphore
+from curl_cffi import requests
+
+_OUTBOUND = BoundedSemaphore(4)
+
+class BoundedSession(requests.Session):
+    def request(self, *args, **kwargs):
+        if not _OUTBOUND.acquire(timeout=1):
+            raise RuntimeError("Market data busy")
+        try:
+            kwargs["timeout"] = 10
+            return super().request(*args, **kwargs)
+        finally:
+            _OUTBOUND.release()
 
 class YFinanceProvider(MarketDataProvider):
+    def __init__(self):
+        self.session = BoundedSession(impersonate="chrome")
+
     
     # --- HELPER: Détection du calendrier selon le suffixe ---
     def _get_cal_name(self, ticker: str) -> str:
@@ -18,17 +35,17 @@ class YFinanceProvider(MarketDataProvider):
 
     def fetch_history(self, ticker: str, period: str, interval: str) -> pd.DataFrame:
         try:
-            stock = yf.Ticker(ticker)
-            df = stock.history(period=period, interval=interval)
+            stock = yf.Ticker(ticker, session=self.session)
+            df = stock.history(period=period, interval=interval, timeout=10)
             if df.empty: return None
-            return df
+            return df.tail(10000)
         except Exception as e:
             print(f"[YF Provider] Error history: {e}")
             return None
 
     def fetch_info(self, ticker: str) -> dict:
         try:
-            stock = yf.Ticker(ticker)
+            stock = yf.Ticker(ticker, session=self.session)
             return stock.info
         except Exception as e:
             print(f"[YF Provider] Error info: {e}")
@@ -36,7 +53,7 @@ class YFinanceProvider(MarketDataProvider):
 
     def fetch_live_price(self, ticker: str) -> dict:
         try:
-            stock = yf.Ticker(ticker)
+            stock = yf.Ticker(ticker, session=self.session)
             # Utilisation de fast_info pour la performance
             price = stock.fast_info.last_price
             prev_close = stock.fast_info.previous_close
@@ -80,7 +97,7 @@ class YFinanceProvider(MarketDataProvider):
             now = pd.Timestamp.now(tz='UTC')
 
             # Téléchargement Bulk
-            data = yf.download(tickers, period="2d", interval="1m", group_by='ticker', threads=True, progress=False, auto_adjust=True)
+            data = yf.download(tickers, period="2d", interval="1m", group_by='ticker', threads=4, progress=False, auto_adjust=True, timeout=10, session=self.session)
             
             if data is None or data.empty:
                 return {}

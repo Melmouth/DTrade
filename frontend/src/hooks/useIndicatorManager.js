@@ -1,5 +1,5 @@
 /* frontend/src/hooks/useIndicatorManager.js */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { marketApi } from '../api/client';
 
 export function useIndicatorManager(ticker, activePeriod) { 
@@ -10,7 +10,7 @@ export function useIndicatorManager(ticker, activePeriod) {
   const [isLoading, setIsLoading] = useState(false);
 
   // Ref pour éviter les boucles infinies si activePeriod change trop vite
-  const loadedPeriodRef = useRef(null);
+
 
   // --- 1. CHARGEMENT (Initial & Refresh) ---
   const loadIndicators = useCallback(async () => {

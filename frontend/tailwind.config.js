@@ -21,8 +21,8 @@ export default {
         }
       },
       fontFamily: {
-        mono: ['"JetBrains Mono"', 'monospace'], // Tout sera en mono
-        sans: ['"JetBrains Mono"', 'monospace'], // On force le mono partout
+        mono: ['"JetBrains Mono Variable"', 'monospace'], // Tout sera en mono
+        sans: ['"JetBrains Mono Variable"', 'monospace'], // On force le mono partout
       },
       boxShadow: {
         'glow-blue': '0 0 10px rgba(0, 243, 255, 0.3), 0 0 20px rgba(0, 243, 255, 0.1)',

@@ -1,4 +1,5 @@
 from typing import Dict, List, Set
+import asyncio
 from fastapi import WebSocket
 from datetime import datetime
 
@@ -26,7 +27,7 @@ class ConnectionManager:
         """Diffuse à tous les clients écoutant le flux global"""
         for connection in list(self.global_connections):
             try:
-                await connection.send_json(message)
+                await asyncio.wait_for(connection.send_json(message), timeout=2)
             except Exception:
                 self.disconnect_global(connection)
 
@@ -58,7 +59,7 @@ class ConnectionManager:
             
             for connection in connections:
                 try:
-                    await connection.send_json(message)
+                    await asyncio.wait_for(connection.send_json(message), timeout=2)
                 except Exception as e:
                     print(f"Error broadcasting: {e}")
                     self.disconnect(connection, ticker)

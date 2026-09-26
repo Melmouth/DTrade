@@ -1,0 +1,7 @@
+# Runtime dependencies. Regenerate the hashed lock; do not pin transitive packages here.
+fastapi>=0.141.1,<0.142
+uvicorn[standard]>=0.54,<0.55
+numpy>=2.5.3,<3
+pandas>=3.0.6,<4
+yfinance>=1.7,<2
+exchange-calendars>=4.13.2,<5

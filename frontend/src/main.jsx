@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import AuthGate from './components/AuthGate.jsx'
+import '@fontsource-variable/jetbrains-mono'
 import './index.css'
 
 // Error Boundary minimaliste pour le debug
@@ -25,7 +27,7 @@ class ErrorBoundary extends React.Component {
           <h1 style={{ borderBottom: '1px solid #333' }}>SYSTEM FAILURE // KERNEL PANIC</h1>
           <p>L'application a crashé. Voici l'erreur :</p>
           <pre style={{ color: 'white', marginTop: '20px', whiteSpace: 'pre-wrap' }}>
-            {this.state.error?.toString()}
+            Une erreur est survenue. Recharge la page.
           </pre>
           <button 
             onClick={() => window.location.reload()}
@@ -43,6 +45,6 @@ class ErrorBoundary extends React.Component {
 ReactDOM.createRoot(document.getElementById('root')).render(
   // Pas de StrictMode ici, car il complique le debug des WebSockets
   <ErrorBoundary>
-    <App />
+    <AuthGate><App /></AuthGate>
   </ErrorBoundary>
 )

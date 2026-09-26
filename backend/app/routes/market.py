@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from ..services import market_data
+from ..models import Ticker, Period
 
 router = APIRouter(tags=["market"])
 
 # --- ROUTE PRINCIPALE (SNAPSHOT) ---
 @router.get("/api/snapshot/{ticker}")
-def get_market_snapshot(ticker: str, period: str = "1mo"):
+def get_market_snapshot(ticker: Ticker, period: Period = "1mo"):
     """
     Appelé par App.jsx pour l'affichage principal.
     Charge tout : Graphique, Info, Prix, Status.
@@ -18,7 +19,7 @@ def get_market_snapshot(ticker: str, period: str = "1mo"):
 # --- ROUTES SATELLITES (NETTOYÉES) ---
 
 @router.get("/api/company/{ticker}")
-def get_company_info_route(ticker: str):
+def get_company_info_route(ticker: Ticker):
     """
     Appelé par CompanyInfo.jsx.
     Version optimisée : Ne charge QUE les métadonnées (pas d'historique).

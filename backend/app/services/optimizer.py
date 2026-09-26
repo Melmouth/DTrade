@@ -3,6 +3,16 @@ import pandas as pd
 from datetime import timedelta
 from .market_data import get_internal_history
 
+def get_clean_history(ticker, lookback):
+    df = get_internal_history(ticker, lookback)
+    if df is None or df.empty:
+        return None
+    columns = ["High", "Low", "Close"]
+    if not all(column in df for column in columns):
+        return None
+    df = df.dropna(subset=columns).sort_index().tail(10000)
+    return None if df.empty else df
+
 # --- MATH HELPERS ---
 def calculate_wma(series, period):
     weights = np.arange(1, period + 1)
@@ -48,7 +58,8 @@ def optimize_period_ma(ticker, target_up, lookback, calc_func):
                 best_n = n
                 best_actual = ratio
                 if min_error < 0.005: break
-        except: continue
+        except (ValueError, TypeError, ZeroDivisionError):
+            continue  # nosec B112
 
     return { "optimal_n": best_n, "actual_pct": round(best_actual, 4) }
 
@@ -81,7 +92,8 @@ def optimize_band_multiplier(ticker, target_inside, lookback, calc_func):
                 best_k = k
                 best_actual = ratio
                 if min_error < 0.005: break
-        except: continue
+        except (ValueError, TypeError, ZeroDivisionError):
+            continue  # nosec B112
     
     return { "optimal_k": best_k, "actual_pct": round(best_actual, 4) }
 

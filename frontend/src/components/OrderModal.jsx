@@ -5,8 +5,11 @@ import { usePriceStore } from '../hooks/usePriceStore';
 // Import API to fetch price if missing from store
 import { marketApi } from '../api/client'; 
 
-export default function OrderModal({ isOpen, onClose, prefillTicker = '', prefillSide = 'BUY' }) {
-  if (!isOpen) return null;
+export default function OrderModal(props) {
+  return props.isOpen ? <OrderContent {...props} /> : null;
+}
+
+function OrderContent({ onClose, prefillTicker = '', prefillSide = 'BUY' }) {
 
   const { executeOrder, cash, positions } = usePortfolioStore();
   const { prices, updatePrice } = usePriceStore(); // Import updatePrice to manually set data
@@ -17,16 +20,6 @@ export default function OrderModal({ isOpen, onClose, prefillTicker = '', prefil
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
-
-  // Reset à l'ouverture
-  useEffect(() => {
-    setTicker(prefillTicker);
-    setSide(prefillSide);
-    setQty(1);
-    setError(null);
-    setSuccess(false);
-    setLoading(false);
-  }, [isOpen, prefillTicker, prefillSide]);
 
   // Données Live du Store
   const liveData = prices[ticker];

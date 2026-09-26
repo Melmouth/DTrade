@@ -9,30 +9,6 @@
 // --- UTILS : TIME BUCKETING ---
 // Convertit un timestamp en clé de "bucket" (ex: jour, heure, minute)
 // Utile pour mapper une donnée macro sur une donnée micro
-function getTimeBucketKey(timestamp, resolution) {
-    const date = new Date(timestamp * 1000);
-    
-    // ISO String : YYYY-MM-DDTHH:mm:ss.sssZ
-    const iso = date.toISOString();
-    
-    // CAS 1 : Daily, Weekly, Monthly (Macro)
-    if (['1d', '1wk', '1mo', '3mo', 'days'].includes(resolution)) {
-        return iso.split('T')[0]; // "2023-10-27"
-    }
-
-    // CAS 2 : Intraday (Micro)
-    // On doit arrondir à la minute, 5 min, etc.
-    // Pour l'instant, on gère le mapping fin via le timestamp exact ou la minute
-    if (['1m', '5m', '15m', '60m', '1h', 'data'].includes(resolution)) {
-        // Pour simplifier, on clef sur la minute YYYY-MM-DDTHH:mm
-        return iso.substring(0, 16); 
-    }
-    
-    // Fallback : Daily
-    return iso.split('T')[0];
-}
-
-
 export function formatSeries(chartData, computedData) {
     const res = [];
     const isArrayMode = Array.isArray(computedData);
@@ -88,7 +64,7 @@ export function formatSeries(chartData, computedData) {
  * @param {Array} chartData - Données affichées sur le graphique (ex: 1m)
  * @param {String} resolution - Résolution de la source ('1d', '1m', etc.)
  */
-export function hydrateBackendData(backendData, chartData, resolution) {
+export function hydrateBackendData(backendData, chartData) {
     
     // CAS 0 : Pas de données
     if (!backendData || !chartData || backendData.length === 0) return [];

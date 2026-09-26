@@ -1,13 +1,43 @@
+import os
 import sqlite3
+from pathlib import Path
+from contextlib import contextmanager
 
-DB_NAME = "market.db"
+DB_NAME = None
 
+def configure_database(directory: Path):
+    global DB_NAME
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if directory.is_symlink() or directory.stat().st_uid != os.getuid():
+        raise ValueError("Unsafe data directory")
+    directory.chmod(0o700)
+    path = directory / "market.db"
+    if path.is_symlink():
+        raise ValueError("Database symlinks are not allowed")
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    os.close(fd)
+    path.chmod(0o600)
+    DB_NAME = path
+
+@contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_NAME, timeout=30.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.row_factory = sqlite3.Row
-    return conn
+    if DB_NAME is None:
+        raise RuntimeError("Database is not initialized")
+    conn = sqlite3.connect(DB_NAME, timeout=5.0)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=FULL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA max_page_count=16384")
+        conn.execute("PRAGMA journal_size_limit=4194304")
+        conn.execute("PRAGMA secure_delete=ON")
+        conn.row_factory = sqlite3.Row
+        # Serialize read-modify-write operations (cash and positions).
+        conn.execute("BEGIN IMMEDIATE")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 def init_db():
     with get_db() as conn:
@@ -76,17 +106,14 @@ def init_db():
         
         # MIGRATION AUTO SIMPLE (POUR DEV)
         # Si la colonne n'existe pas (ancienne DB), on l'ajoute
-        try:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(saved_indicators)")}
+        if "resolution" not in columns:
             conn.execute("ALTER TABLE saved_indicators ADD COLUMN resolution TEXT DEFAULT '1d'")
-        except sqlite3.OperationalError:
-            pass # La colonne existe déjà
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON saved_indicators(ticker)")
         
         # --- SEEDS ---
-        try:
-            conn.execute("INSERT OR IGNORE INTO portfolios (name) VALUES (?)", ("Favoris",))
-        except: pass
+        conn.execute("INSERT OR IGNORE INTO portfolios (name) VALUES (?)", ("Favoris",))
 
         cur = conn.execute("SELECT count(*) as cnt FROM accounts")
         if cur.fetchone()['cnt'] == 0:
@@ -96,4 +123,11 @@ def init_db():
                 INSERT INTO transactions (type, total_amount, timestamp) 
                 VALUES ('DEPOSIT', 100000.0, CURRENT_TIMESTAMP)
             """)
+        # Tables are fixed internal identifiers, never supplied by a request.
+        for table, limit in (("portfolios", 100), ("portfolio_items", 500),
+                             ("saved_indicators", 500), ("positions", 100), ("transactions", 10000)):
+            conn.execute(f"""CREATE TRIGGER IF NOT EXISTS quota_{table}
+                BEFORE INSERT ON {table}
+                WHEN (SELECT COUNT(*) FROM {table}) >= {limit}
+                BEGIN SELECT RAISE(ABORT, 'Storage quota reached'); END""")  # nosec B608
         conn.commit()

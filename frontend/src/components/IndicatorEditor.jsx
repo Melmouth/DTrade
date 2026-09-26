@@ -117,6 +117,8 @@ export default function IndicatorEditor({ indicator, chartData, dailyData, activ
     return () => clearTimeout(timer);
     
     // NOTE : chartData/dailyData sont retirés des dépendances pour performance
+    // Preview intentionally uses its captured data snapshot; market ticks must not rebuild it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localParams, color, name, granularity, indicator.type, definition, compute]); 
 
   const handleParamChange = (key, value) => {

@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { X, Trash2, AlertTriangle, Save } from 'lucide-react';
 import { marketApi } from '../api/client';
 
-export default function SettingsModal({ isOpen, onClose, settings, onSave, onNuke }) {
-  if (!isOpen) return null;
+export default function SettingsModal(props) {
+  return props.isOpen ? <SettingsContent {...props} /> : null;
+}
+
+function SettingsContent({ onClose, settings, onSave, onNuke }) {
 
   const [localSettings, setLocalSettings] = useState(settings);
   const [confirmNuke, setConfirmNuke] = useState(false);

@@ -1,0 +1,11 @@
+title = "DTrade secret scanning"
+[extend]
+useDefault = true
+
+# Historical browser storage label, verified to never be a credential.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Exact historical localStorage label only"
+regexTarget = "secret"
+regexes = ['''^trading_indicators_v2$''']

@@ -1,5 +1,5 @@
 /* frontend/src/App.jsx */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Search, Settings, X, Eye, EyeOff, Edit2, Terminal, Cpu, Radio, ShieldCheck, Wifi, ScanEye,
   LayoutDashboard, Briefcase, FileText // <--- IMPORT FileText
@@ -72,7 +72,7 @@ function App() {
     period: currentPeriod, 
     setPeriod: handlePeriodChange, 
     refresh: refetch 
-  } = useMarketStream(streamTicker, appSettings.wsInterval, appSettings.historyPeriod);
+  } = useMarketStream(streamTicker, appSettings.historyPeriod);
 
   // Synchronisation du ticker actif vers le store global
   useEffect(() => {
@@ -111,14 +111,19 @@ function App() {
   };
 
   // --- 5. LOGIQUE MÉTIER ---
-  useEffect(() => { loadSidebar(); }, []);
-
-  const loadSidebar = async () => {
+  const loadSidebar = useCallback(async () => {
     try {
       const res = await marketApi.getSidebarData();
       setSidebarData(res.data);
     } catch (err) { console.error("Sidebar load error", err); }
-  };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    marketApi.getSidebarData().then(res => { if (active) setSidebarData(res.data); })
+      .catch(() => { /* Session or network errors are handled by the API client. */ });
+    return () => { active = false; };
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();

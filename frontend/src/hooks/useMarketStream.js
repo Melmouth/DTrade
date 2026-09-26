@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { marketApi } from '../api/client';
+import { marketApi, socketUrl } from '../api/client';
 
 const VIEW_KEY = 'trading_view_pref';
-const WS_BASE_URL = 'ws://localhost:8000/ws';
+
 
 // Intervalle de synchronisation HTTP de secours (Background Sync)
 // Sert à corriger les éventuelles dérives du WebSocket sur le long terme (ex: volumes)
@@ -98,7 +98,7 @@ export function useMarketStream(ticker, defaultPeriod = '1mo') {
     const connectWs = () => {
       if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) return; 
 
-      const ws = new WebSocket(`${WS_BASE_URL}/${ticker}`);
+      const ws = new WebSocket(socketUrl(`/ws/${encodeURIComponent(ticker)}`));
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
@@ -191,7 +191,11 @@ export function useMarketStream(ticker, defaultPeriod = '1mo') {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = event => {
+        if (event.code === 1008 && !isExpectedClose) {
+          window.dispatchEvent(new Event('dtrade:session-expired'));
+          return;
+        }
         if (isExpectedClose) return;
         // Reconnexion automatique intelligente si le composant est toujours monté
         if (isMountedRef.current && currentTickerRef.current === ticker) {

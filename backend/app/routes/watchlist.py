@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from ..database import get_db
-from ..models import PortfolioRequest, PortfolioItemRequest
+from ..models import PortfolioRequest, PortfolioItemRequest, Ticker
 from ..services.market_data import provider
 import sqlite3
 
@@ -67,7 +67,7 @@ def add_ticker_to_watchlist(pid: int, item: PortfolioItemRequest):
     return {"status": "added"}
 
 @router.delete("/{pid}/items/{ticker}")
-def remove_ticker_from_watchlist(pid: int, ticker: str):
+def remove_ticker_from_watchlist(pid: int, ticker: Ticker):
     with get_db() as conn:
         conn.execute("DELETE FROM portfolio_items WHERE portfolio_id = ? AND ticker = ?", (pid, ticker))
         conn.commit()
