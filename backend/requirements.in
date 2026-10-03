@@ -1,5 +1,5 @@
 # Runtime dependencies. Regenerate the hashed lock; do not pin transitive packages here.
-fastapi>=0.141.1,<0.142
+fastapi>=0.142.1,<0.143
 uvicorn[standard]>=0.54,<0.55
 numpy>=2.5.3,<3
 pandas>=3.0.6,<4

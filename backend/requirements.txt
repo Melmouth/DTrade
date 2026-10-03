@@ -335,11 +335,11 @@ curl-cffi==0.16.3 \
 exchange-calendars==4.13.2 \
     --hash=sha256:a9459425dd64142cd54fbc639847403c7e0c33d60fbc326c94fc1d6bd127f002 \
     --hash=sha256:fc5a2ad0d61b5c3a6539a3061cd4cbb55c59f4a903455cec7926e4b798919996
-    # via -r backend/requirements.in
-fastapi==0.141.1 \
-    --hash=sha256:bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3 \
-    --hash=sha256:e8822fc40db1e1858054d7a949a888695bc9bdce70139178e33bd2871a453ca1
-    # via -r backend/requirements.in
+    # via -r requirements.in
+fastapi==0.142.1 \
+    --hash=sha256:761663e3e6939da45f997a6f68362abc0fa9d8606e76d504f15f806d2281581d \
+    --hash=sha256:7eea2b5b1632ed43de2c090b3a43b7d92267189dfbbd55a967307ed763b6c57a
+    # via -r requirements.in
 h11==0.16.0 \
     --hash=sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1 \
     --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86
@@ -656,10 +656,14 @@ numpy==2.5.3 \
     --hash=sha256:fc36dc566135b5eceec4cf89758fcb719266a019ef07dae1754ae7c9f617ef3e \
     --hash=sha256:ffdc76bfcae6b255dff75202c5e7feaf95b40246bc0a17944facc1fecf9f79ab
     # via
-    #   -r backend/requirements.in
+    #   -r requirements.in
     #   exchange-calendars
     #   pandas
     #   yfinance
+opentelemetry-api==1.45.0 \
+    --hash=sha256:711ede81773c8025c2c03dac0450bc89f3d30aea6eabcc815c570d4e35a963f7 \
+    --hash=sha256:80e068aba7cd56c8b58512d6a36f8d25cb1dfaa0c0a4cc1c938ccf9f362d9cb3
+    # via fastapi
 pandas==3.0.6 \
     --hash=sha256:0704044b676496b8350e023b09f174a26772456c974a2b11c36bebb558c9490d \
     --hash=sha256:085e3786ae6b2e82b406266bce36690f72b9dc1421903ba9296b2981a9fcf586 \
@@ -720,7 +724,7 @@ pandas==3.0.6 \
     --hash=sha256:fb625f426b375bcc96e3a04c5d5d266cd7be6ae5d6866e0e703382ab5164068c \
     --hash=sha256:ff51a4459ed036e93d1eb1bb5e6e7b28685d3cb6b7c12b91c05b31024e234729
     # via
-    #   -r backend/requirements.in
+    #   -r requirements.in
     #   exchange-calendars
     #   yfinance
 peewee==4.5.1 \
@@ -989,6 +993,7 @@ typing-extensions==4.16.0 \
     #   anyio
     #   beautifulsoup4
     #   fastapi
+    #   opentelemetry-api
     #   pydantic
     #   pydantic-core
     #   starlette
@@ -1010,7 +1015,7 @@ urllib3==2.8.0 \
 uvicorn==0.54.0 \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
-    # via -r backend/requirements.in
+    # via -r requirements.in
 uvloop==0.22.1 \
     --hash=sha256:017bd46f9e7b78e81606329d07141d3da446f8798c6baeec124260e22c262772 \
     --hash=sha256:0530a5fbad9c9e4ee3f2b33b148c6a64d47bbad8000ea63704fa8260f4cf728e \
@@ -1252,4 +1257,4 @@ websockets==17.1 \
 yfinance==1.7.0 \
     --hash=sha256:442f780d13d3e52fefa6c721c2c9bfee321078c1987d6585ec193b5c24382f8a \
     --hash=sha256:91281ecd1f71069a37155ff8653aff2d3085f3492bd8721f18b70955da62911a
-    # via -r backend/requirements.in
+    # via -r requirements.in
